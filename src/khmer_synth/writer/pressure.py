@@ -28,7 +28,7 @@ from .style import WriterStyle
 
 
 def _envelope(
-    s_cum: np.ndarray, ramp: float, exponent: float, min_ramp_points: float = 6.0
+    s_cum: np.ndarray, ramp: float, exponent: float, min_ramp_points: float = 6.0, ramp_end: float | None = None
 ) -> np.ndarray:
     """Plateau envelope with tapered ends, in normalised arc length.
 
@@ -36,15 +36,18 @@ def _envelope(
     samples.  A pen's pressure rise time is roughly constant (tens of ms), not
     proportional to how long the stroke happens to be, so a purely fractional
     ramp makes short ticks jump from 0.35 to 1.0 between two consecutive
-    samples - a step no digitiser can produce.
+    samples - a step no digitiser can produce.  ``ramp_end`` (default ``ramp``)
+    sets the lift-off taper separately from the landing.
     """
     n = len(s_cum)
     total = float(s_cum[-1]) if n else 0.0
     if total <= 1e-9 or ramp <= 0:
         return np.ones_like(s_cum)
-    ramp = float(np.clip(max(ramp, min_ramp_points / max(n, 1)), 1e-6, 0.5))
+    lo = min_ramp_points / max(n, 1)
+    ramp_end = float(np.clip(max(ramp if ramp_end is None else ramp_end, lo), 1e-6, 0.6))
+    ramp = float(np.clip(max(ramp, lo), 1e-6, 0.5))
     u = s_cum / total
-    r = np.clip(np.minimum(u / ramp, (1.0 - u) / ramp), 0.0, 1.0)
+    r = np.clip(np.minimum(u / ramp, (1.0 - u) / ramp_end), 0.0, 1.0)
     # smoothstep: zero derivative at both ends, so the pressure eases in and out
     # instead of jumping on the first sample (a plain power < 1 rises almost
     # vertically at r = 0)
@@ -82,10 +85,19 @@ def synth_pressure(
             )
             continue
 
-        env = _envelope(s_cum, cfg.ramp_fraction, cfg.envelope_exponent)
-        # a full lift-off at the very ends would render as vanishing ink, so the
-        # envelope only modulates down to ~35 % of the writer's mean pressure
-        env = 0.35 + 0.65 * env
+        # A fast writer plants the pen quickly and lifts it while still moving,
+        # leaving a long thin exit flick; a slow writer stops before lifting, so
+        # the stroke ends blunt.  The envelope floor (35 % of the mean pressure
+        # for the slowest hand) and the exit ramp length both follow fluency.
+        f = float(style.fluency)
+        env = _envelope(
+            s_cum,
+            cfg.ramp_fraction * (1.0 - 0.4 * f),
+            cfg.envelope_exponent,
+            ramp_end=cfg.ramp_fraction * (1.0 + 1.5 * f),
+        )
+        floor = 0.35 - 0.27 * f
+        env = floor + (1.0 - floor) * env
 
         base = float(style.pressure_mean)
 

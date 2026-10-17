@@ -32,9 +32,14 @@ shadow, perspective, rotation, noise, JPEG, ink fade, stains). Every sample is r
 | `fonts.exclude` | all 16 display faces (Moul, Bokor, Metal, Koulen, Bayon, Muol variants, …) | the skeleton traces their ornament, not the letter; no hand writes like that |
 | `fonts.weights` | Fasthand / Freehand ×4 | the closest letter shapes to everyday Khmer handwriting |
 | `layout.canvas_width` | 64 (with `auto_width`) | canvas = text width + padding → tight line crops instead of short words floating in empty canvas |
-| `writer.fluency` | max 0.9 (was 1.0) | the extreme "scrawl" hands were often illegible = label noise |
+| `writer.fluency` | 0.4 – 0.92 (was 0.05 – 1.0) | mostly fast adult hands; no slow "child-like" writers, no illegible scrawl |
+| `writer.stroke_width` / `character_spacing` / `connect_probability` | 0.025–0.06 / 0.8–1.08 / 0.1–0.85 | thinner pens, tighter letters, more joins (fast writing) |
+| `render.width_pressure_bias/gain` | 0.3 / 1.15 (was 0.6 / 0.8) | pressure can thin a stroke to a tapered tail |
 | `degradation` | shadow 0.3→0.15, ink fade 0.3→0.15, uneven light 0.55→0.4 | stacked heavy vignettes + fading erased whole syllables |
 | `dataset` | degraded JPEG only, no trajectories | Stage 2 needs images; halves disk and time |
+
+Code changes for fast, confident strokes (tapered exits, no tremor on fast hands, speed-dependent
+width) are listed in `src/khmer_synth/VENDORED.md`.
 
 ## Text
 

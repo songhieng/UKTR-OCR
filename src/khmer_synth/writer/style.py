@@ -174,9 +174,8 @@ def sample_writer(
         baseline_walk=by_fluency(cfg.baseline_walk),
         baseline_phase=float(rng.uniform(0, 2 * np.pi)),
         local_jitter=by_fluency(cfg.local_jitter, power=0.8),
-        tremor=(
-            uniform(rng, cfg.tremor) if archetype == "shaky" else by_fluency(cfg.tremor, power=1.6)
-        ),
+        # tremor is a slow-writing artefact: a confident fast hand does not shake
+        tremor=uniform(rng, cfg.tremor) * (1.0 if archetype == "shaky" else (1.0 - fluency) ** 1.5),
         local_elasticity=by_fluency(cfg.local_elasticity),
         overshoot=by_fluency(cfg.overshoot, power=0.8),
         glyph_rotation=by_fluency(cfg.glyph_rotation),
@@ -189,7 +188,7 @@ def sample_writer(
         connect_probability=by_fluency(cfg.connect_probability, power=1.5, spread=0.16),
         connect_max_gap=by_fluency(cfg.connect_max_gap),
         corner_rounding=by_fluency(cfg.corner_rounding, power=1.2),
-        stroke_smoothness=uniform(rng, cfg.stroke_smoothness),
+        stroke_smoothness=by_fluency(cfg.stroke_smoothness, power=0.7),
         stroke_width=uniform(rng, cfg.stroke_width),
         pressure_mean=uniform(rng, cfg.pressure_mean),
         pressure_variation=by_fluency(cfg.pressure_variation),
@@ -199,9 +198,10 @@ def sample_writer(
         pen_model=choice_weighted(rng, cfg.pen_models),
         ink_color=choice_weighted(rng, cfg.ink_colors),
     )
-    # a fast hand also writes tighter and leans forward more
-    style.character_spacing *= 1.0 - 0.07 * fluency
-    style.slant += 0.10 * fluency * float(rng.uniform(0.3, 1.0))
+    # a fast hand also writes tighter, narrower and leans forward more
+    style.character_spacing *= 1.0 - 0.15 * fluency
+    style.horizontal_scale *= 1.0 - 0.10 * fluency
+    style.slant += 0.20 * fluency * float(rng.uniform(0.4, 1.0))
     if archetype == "shaky":
         style.writing_speed *= 0.75
     if rng.random() < 0.12:  # a bold, heavy-handed minority

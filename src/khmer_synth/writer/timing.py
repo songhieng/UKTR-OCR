@@ -81,7 +81,9 @@ def synth_timing(
             u = s_cum / total
             r = np.minimum(u / cfg.ramp_fraction, (1.0 - u) / cfg.ramp_fraction)
             r = np.clip(r, 0.0, 1.0)
-            ramp = cfg.end_speed_factor + (1.0 - cfg.end_speed_factor) * np.sqrt(r)
+            # a fluent hand is still moving when the pen lands and lifts
+            end = cfg.end_speed_factor + (1.0 - cfg.end_speed_factor) * 0.6 * style.fluency
+            ramp = end + (1.0 - end) * np.sqrt(r)
             v = v * ramp
 
         # correlated speed noise (per stroke)

@@ -41,10 +41,22 @@ class PenModel:
 
 PEN_MODELS: dict[str, PenModel] = {
     "ballpoint": PenModel(
-        "ballpoint", width_scale=0.85, alpha=0.96, width_pressure=0.7, alpha_pressure=0.8, texture=0.05
+        "ballpoint",
+        width_scale=0.85,
+        alpha=0.96,
+        width_pressure=0.9,
+        alpha_pressure=0.8,
+        speed_thinning=0.2,
+        texture=0.05,
     ),
     "gel": PenModel(
-        "gel", width_scale=1.0, alpha=0.99, width_pressure=0.5, alpha_pressure=0.35, bleed=0.35
+        "gel",
+        width_scale=1.0,
+        alpha=0.99,
+        width_pressure=0.7,
+        alpha_pressure=0.35,
+        speed_thinning=0.15,
+        bleed=0.35,
     ),
     "fountain": PenModel(
         "fountain",
