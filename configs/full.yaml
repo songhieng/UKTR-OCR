@@ -1,0 +1,61 @@
+# Stage-1 paper-like pretraining. [paper] = stated in arXiv:2603.00702; others are assumptions.
+experiment: stage1_full
+seed: 42
+
+paths:
+  manifest: data/manifest.csv
+  data_root: data
+  tokenizer: data/tokenizer/kcc_vocab.json
+  out_dir: checkpoints
+  results_dir: results/stage1_full
+
+data:
+  train_sources: [khmer_printed, khmer_synthetic, hiertext]
+  val_sources: [khmer_printed, khmer_synthetic, hiertext]
+  max_train_per_source: null
+  max_val_per_source: 2000      # periodic validation subset; scripts/evaluate.py runs the full sets
+  exclude_handwritten: false    # HierText contains ~6% handwritten Latin lines (paper keeps them)
+  img_height: 32                # paper reports FLOPs at 32x116; input size otherwise unspecified
+  min_width: 16
+  max_width: 1600               # wider lines are horizontally squeezed to this width
+  augment: true
+  num_workers: 8
+  bucket_mult: 50
+
+model:
+  in_channels: 1
+  block_channels: [32, 64, 128, 256, 512, 512]   # [paper] six blocks, 32 -> 512
+  block_layers: [1, 2, 3, 3, 1, 1]
+  block_strides: [2, 1, 1, 2, 1, 1]              # [paper] (2,2) downsampling in blocks 1 and 4
+  d_model: 512                                   # [paper]
+  nhead: 8                                       # [paper]
+  dim_ff: 2048                                   # [paper]
+  dropout: 0.1                                   # [paper]
+  enc_layers: 3                                  # [paper]
+  dec_layers: 3                                  # [paper]
+  max_dec_len: 256
+
+train:
+  epochs: 5                     # [paper]
+  batch_size: 32                # [paper] effective batch = batch_size * grad_accum
+  grad_accum: 1
+  max_steps: null
+  lr_min: 1.0e-5                # [paper] cyclic LR bounds
+  lr_max: 1.0e-4                # [paper]
+  cyclic_step_size_up: 5000     # optimizer steps per half cycle (not stated in paper)
+  cyclic_mode: triangular
+  betas: [0.9, 0.999]
+  weight_decay: 0.0
+  grad_clip: 50.0               # [paper] gradient clipping value 50
+  amp: true                     # bf16 where supported, else fp16 + GradScaler
+  dec_mask_ratio: 0.3           # [paper] 30% decoder masking ratio (following Buoy et al.)
+  ctc_weight: 1.0               # [paper] L = L_CTC + L_TR
+  ce_weight: 1.0
+  log_every: 50
+  eval_every: 5000
+  save_every: 1000
+  eval_batch_size: 64
+  max_eval_decode_len: 256
+  best_metric: cer_mean         # mean of CTC and Transformer CER on the validation subset
+  best_name: uktr_base_stage1_best.pt
+  last_name: uktr_base_stage1_last.pt

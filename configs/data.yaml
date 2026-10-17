@@ -1,0 +1,58 @@
+# Data pipeline config (download -> prepare -> build_manifest -> build_vocab).
+# Paths are relative to the repo root.
+raw_dir: data/raw
+interim_dir: data/interim
+data_root: data                 # image_path in the manifest is relative to this
+manifest: data/manifest.csv
+report_dir: results/data
+num_workers: 8
+
+sources:                        # order = priority when de-duplicating across sources
+  khmer_printed:
+    hf_repo: SoyVitou/62k-images-khmer-printed-dataset
+    revision: main
+    files: [trainset.parquet, validset.parquet, testset.parquet]
+    split_map: {trainset: train, validset: val, testset: test}   # official splits kept
+    license: >-
+      HF card metadata: MIT. Card body contains an unfilled placeholder
+      ("[Specify your license here...]"). Used under MIT per metadata; confirm with the
+      author before redistribution.
+
+  khmer_synthetic:
+    hf_repo: SoyVitou/KhmerSynthetic1M
+    revision: main
+    files: ["data/train-*.parquet"]
+    # no official split: deterministic split by md5(normalized text), so identical
+    # texts never straddle train/eval.
+    val_fraction: 0.005
+    test_fraction: 0.005
+    license: >-
+      CONFLICTING: HF card metadata says apache-2.0, card body says "Research and academic
+      use only. Commercial use is not permitted." Treated as research-only, non-commercial.
+
+  hiertext:
+    annotations_url: "https://github.com/google-research-datasets/hiertext/raw/main/gt/{split}.jsonl.gz"
+    images_url: "https://open-images-dataset.s3.amazonaws.com/ocr/{split}.tgz"
+    splits: [train, validation, test]
+    split_map: {train: train, validation: val, test: test}
+    # The paper trains on train+validation crops (518,726 lines, vertical removed).
+    # Default here keeps validation held out for evaluation; set true to match the paper.
+    validation_to_train: false
+    keep_illegible: false       # illegible lines have empty/partial text -> label noise
+    keep_vertical: false        # paper removes vertical text
+    min_crop_height: 8          # px; smaller crops are unreadable at 32 px input height
+    max_save_height: 64         # crops are downscaled to this height on disk (training uses 32)
+    license: >-
+      Annotations: CC BY-SA 4.0 (HierText README). Images: Open Images subset hosted by
+      CVDF; Open Images lists its images as CC BY 2.0 (verify per image for redistribution).
+
+smoke:                          # used by --smoke: tiny downloads for an end-to-end check
+  khmer_synthetic_files: ["data/train-00000-of-00020.parquet"]
+  khmer_printed_files: [validset.parquet, testset.parquet]
+  hiertext_splits: [validation]
+  hiertext_max_images: 40
+
+validation:
+  drop_unsupported_script: true # drop lines with chars outside Khmer/Latin/common punctuation
+  perceptual_dedup: true        # drop rows with equal dHash AND equal transcription
+  drop_text_overlap_from_eval: false   # exact-text train/eval overlap is reported; drop if true

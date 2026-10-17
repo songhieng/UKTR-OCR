@@ -1,0 +1,14 @@
+# torch / torchvision: use the CUDA build preinstalled on the machine (tested with torch 2.11 + cu126)
+torch>=2.3
+torchvision>=0.18
+numpy
+pandas
+pyarrow
+pillow
+opencv-python-headless
+pyyaml
+rapidfuzz
+huggingface_hub
+matplotlib
+tensorboard
+pytest

@@ -1,0 +1,23 @@
+# Tiny end-to-end run to verify the pipeline (minutes, not a real model).
+base: full.yaml
+experiment: stage1_smoke
+
+paths:
+  out_dir: checkpoints/smoke
+  results_dir: results/stage1_smoke
+
+data:
+  max_train_per_source: 2000
+  max_val_per_source: 200
+  num_workers: 2
+
+train:
+  epochs: 1
+  max_steps: 300
+  cyclic_step_size_up: 100
+  log_every: 20
+  eval_every: 150
+  save_every: 100
+  max_eval_decode_len: 128
+  best_name: uktr_base_stage1_smoke_best.pt
+  last_name: uktr_base_stage1_smoke_last.pt

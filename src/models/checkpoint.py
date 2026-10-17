@@ -1,0 +1,62 @@
+"""Checkpoint format + Stage-2 loading.
+
+A checkpoint is a dict with (at least):
+  format_version, stage, model_config, model_state, tokenizer (KCCTokenizer.to_dict()),
+  and for training resumption: optimizer_state, scheduler_state, scaler_state, epoch,
+  global_step, batch_in_epoch, best_metric, rng_state. Plus metadata (metrics, data provenance,
+  param counts, train config). The inference export drops the resumption fields.
+"""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import torch
+
+from ..tokenizer.kcc import KCCTokenizer
+from .uktr import UKTRBase
+
+FORMAT_VERSION = 1
+RESUME_KEYS = ("optimizer_state", "scheduler_state", "scaler_state", "rng_state")
+
+
+def save_checkpoint(path, **payload) -> None:
+    """Atomic save (write to tmp then rename) so a crash never leaves a truncated file."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    torch.save({"format_version": FORMAT_VERSION, **payload}, tmp)
+    os.replace(tmp, path)
+
+
+def export_inference(src, dst) -> None:
+    ck = torch.load(src, map_location="cpu", weights_only=True)
+    save_checkpoint(dst, **{k: v for k, v in ck.items() if k not in RESUME_KEYS and k != "format_version"})
+
+
+def load_stage1(path, model: torch.nn.Module | None = None, device="cpu",
+                allowed_missing_prefixes=("feature_selector.",)):
+    """Load a Stage-1 checkpoint.
+
+    model=None  -> build a UKTRBase from the stored config and load strictly.
+    model=<Stage-2 model> -> load the Stage-1 weights into it; only keys under
+        `allowed_missing_prefixes` (the new MAFS module) may be missing, nothing may be
+        unexpected and every shape must match. Raises otherwise.
+    Returns (model, tokenizer, checkpoint_dict).
+    """
+    ck = torch.load(path, map_location="cpu", weights_only=True)
+    assert ck.get("format_version") == FORMAT_VERSION, f"unknown checkpoint format {ck.get('format_version')}"
+    tok = KCCTokenizer.from_dict(ck["tokenizer"])
+    if model is None:
+        model = UKTRBase(ck["model_config"])
+        model.load_state_dict(ck["model_state"], strict=True)
+    else:
+        own = model.state_dict()
+        bad = [k for k, v in ck["model_state"].items() if k in own and own[k].shape != v.shape]
+        if bad:
+            raise ValueError(f"shape mismatch for {bad[:10]}")
+        res = model.load_state_dict(ck["model_state"], strict=False)
+        missing = [k for k in res.missing_keys if not k.startswith(tuple(allowed_missing_prefixes))]
+        if missing or res.unexpected_keys:
+            raise ValueError(f"missing={missing[:10]} unexpected={res.unexpected_keys[:10]}")
+    return model.to(device), tok, ck
