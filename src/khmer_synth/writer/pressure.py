@@ -94,9 +94,9 @@ def synth_pressure(
             s_cum,
             cfg.ramp_fraction * (1.0 - 0.4 * f),
             cfg.envelope_exponent,
-            ramp_end=cfg.ramp_fraction * (1.0 + 1.5 * f),
+            ramp_end=cfg.ramp_fraction * (1.0 + 2.5 * f),
         )
-        floor = 0.35 - 0.27 * f
+        floor = 0.35 - 0.30 * f
         env = floor + (1.0 - floor) * env
 
         base = float(style.pressure_mean)

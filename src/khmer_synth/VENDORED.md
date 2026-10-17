@@ -19,3 +19,9 @@ The upstream writer model drew every hand like a slow, careful writer (blunt str
   exit ramp, lower end-pressure floor → tapered tails instead of round blobs.
 * `writer/timing.py`: fluent writers keep speed at stroke ends (feeds speed thinning and pressure).
 * `rendering/ink.py`: ballpoint/gel get speed thinning and stronger pressure→width coupling.
+* `dataset/generator.py`: **no overprinting letters.** Writer spacing scales whole advances and adds
+  negative "tight" offsets, so 38 % of neighbouring clusters overprinted. `_build_line` now pushes each
+  cluster right until its row-by-row ink profile keeps a minimum gap (ink width + headroom for the
+  later deformations) from everything already written; auto-width canvases grow to the final ink
+  width instead of shrinking the text. Overprint is now 0 % before deformation and ≈5 % after
+  (mostly the intentional joining strokes). Checked by `tests/test_synth_spacing.py`.

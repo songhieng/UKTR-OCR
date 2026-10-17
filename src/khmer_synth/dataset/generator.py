@@ -132,9 +132,31 @@ class SampleGenerator:
         rng: np.random.Generator,
         debug: dict[str, Any] | None = None,
     ) -> list[Stroke]:
-        """Place every cluster's planned strokes into line space (px)."""
+        """Place every cluster's planned strokes into line space (px).
+
+        Writer spacing scales whole advances and adds negative "tight" offsets,
+        which on its own lets neighbouring clusters overprint each other.  Each
+        cluster is therefore pushed right just far enough that, row by row (a
+        horizontal ink profile, like optical kerning), it keeps ``min_gap`` from
+        everything already written.  Shapes may still interlock (a tall vowel
+        over a short neighbour) and nearly touch, but never overprint.
+        """
         strokes: list[Stroke] = []
         upem = float(font.upem)
+        # ink width plus headroom for the deformations applied later (stroke-end
+        # overshoot, per-cluster shift/scale, bending), which would otherwise
+        # push ink back into the neighbour
+        min_gap = em_px * (
+            1.6 * style.stroke_width
+            + style.overshoot
+            + style.glyph_translation
+            + 0.4 * style.glyph_scale_var
+            + style.local_elasticity
+        )
+        bin_h = 0.04 * em_px
+        y_lo, n_bins = -1.8 * em_px, 70  # rows covering -1.8 .. +1.0 em around the baseline
+        prev_right = np.full(n_bins, -np.inf)
+        push = 0.0
         order = sorted(
             shaped.cluster_glyphs.keys(),
             key=lambda ci: min(shaped.glyphs[i].x for i in shaped.cluster_glyphs[ci]),
@@ -153,10 +175,30 @@ class SampleGenerator:
                 continue
             plan: StrokePlan = plans[int(rng.integers(0, len(plans)))]
             dx = origin / upem
+            placed = []
             for s in plan.strokes:
                 pts = np.asarray(s.points, dtype=np.float64).copy()
                 pts[:, 0] += dx
                 pts *= em_px
+                pts[:, 0] += push
+                placed.append((pts, s))
+            ink = np.vstack([_densify(p, bin_h * 0.5) for p, _ in placed])
+            rows = np.clip(((ink[:, 1] - y_lo) / bin_h).astype(int), 0, n_bins - 1)
+            left = np.full(n_bins, np.inf)
+            right = np.full(n_bins, -np.inf)
+            np.minimum.at(left, rows, ink[:, 0])
+            np.maximum.at(right, rows, ink[:, 0])
+            # one row of vertical clearance as well
+            near = np.maximum(prev_right, np.maximum(np.roll(prev_right, 1), np.roll(prev_right, -1)))
+            ok = np.isfinite(near) & np.isfinite(left)
+            shift = float(np.max(near[ok] + min_gap - left[ok])) if ok.any() else 0.0
+            if shift > 0:
+                push += shift
+                for pts, _ in placed:
+                    pts[:, 0] += shift
+                right = right + shift
+            prev_right = np.maximum(prev_right, right)
+            for pts, s in placed:
                 strokes.append(Stroke(pts, list(s.edges), s.component, cluster=int(ci)))
             if debug is not None:
                 debug.setdefault("clusters", []).append(
@@ -279,6 +321,12 @@ class SampleGenerator:
             ]
 
         # ---- fit into the canvas ---- #
+        if cfg.layout.auto_width:
+            # collision spacing, slant and overshoot make the ink wider than the
+            # shaped advance; grow the canvas instead of shrinking the writing
+            xs = np.concatenate([s.points[:, 0] for s in strokes])
+            need = int(np.ceil(float(xs.max() - xs.min()) + 2 * pad))
+            W = int(min(cfg.layout.max_canvas_width, max(W, need)))
         strokes, em_px_final, fit = _fit_to_canvas(strokes, W, H, pad, cfg, rng, em_px)
 
         # ---- timing + pressure ---- #
@@ -379,6 +427,16 @@ class SampleGenerator:
 
 
 # --------------------------------------------------------------------------- #
+
+
+def _densify(pts: np.ndarray, step: float) -> np.ndarray:
+    """Linearly resample a polyline so consecutive points are <= ``step`` apart."""
+    if len(pts) < 2:
+        return pts
+    seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+    s_cum = np.concatenate([[0.0], np.cumsum(seg)])
+    u = np.linspace(0.0, s_cum[-1], max(int(s_cum[-1] / max(step, 1e-6)) + 2, 2))
+    return np.stack([np.interp(u, s_cum, pts[:, 0]), np.interp(u, s_cum, pts[:, 1])], axis=1)
 
 
 def _spacing_offsets(

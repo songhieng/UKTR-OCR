@@ -13,8 +13,8 @@ python scripts/build_manifest.py --config configs/stage2_data.yaml
 python scripts/build_vocab.py    --config configs/stage2_data.yaml --existing data/tokenizer/kcc_vocab.json
 ```
 
-Run it on the CPU box of your choice; it never uses the GPU. Measured locally: ~13.6 images/s with
-8 workers once the skeleton cache is warm (100k images ≈ 2 h), ~21 KB per JPEG (100k ≈ 2 GB).
+Run it on the CPU box of your choice; it never uses the GPU. Measured locally: ~26 images/s with
+8 workers once the skeleton cache is warm (100k images ≈ 1 h), ~21 KB per JPEG (100k ≈ 2 GB).
 
 ## How an image is made
 
@@ -32,14 +32,14 @@ shadow, perspective, rotation, noise, JPEG, ink fade, stains). Every sample is r
 | `fonts.exclude` | all 16 display faces (Moul, Bokor, Metal, Koulen, Bayon, Muol variants, …) | the skeleton traces their ornament, not the letter; no hand writes like that |
 | `fonts.weights` | Fasthand / Freehand ×4 | the closest letter shapes to everyday Khmer handwriting |
 | `layout.canvas_width` | 64 (with `auto_width`) | canvas = text width + padding → tight line crops instead of short words floating in empty canvas |
-| `writer.fluency` | 0.4 – 0.92 (was 0.05 – 1.0) | mostly fast adult hands; no slow "child-like" writers, no illegible scrawl |
-| `writer.stroke_width` / `character_spacing` / `connect_probability` | 0.025–0.06 / 0.8–1.08 / 0.1–0.85 | thinner pens, tighter letters, more joins (fast writing) |
+| `writer.fluency` | 0.5 – 0.94 (was 0.05 – 1.0) | fast adult hands; no slow "child-like" writers, no illegible scrawl |
+| `writer.stroke_width` / `character_spacing` / `connect_probability` / `corner_rounding` | 0.022–0.055 / 0.8–1.08 / 0.2–0.9 / 0.2–1.0 | thinner pens, tighter letters, more joins, rounder corners (fast writing) |
 | `render.width_pressure_bias/gain` | 0.3 / 1.15 (was 0.6 / 0.8) | pressure can thin a stroke to a tapered tail |
 | `degradation` | shadow 0.3→0.15, ink fade 0.3→0.15, uneven light 0.55→0.4 | stacked heavy vignettes + fading erased whole syllables |
 | `dataset` | degraded JPEG only, no trajectories | Stage 2 needs images; halves disk and time |
 
 Code changes for fast, confident strokes (tapered exits, no tremor on fast hands, speed-dependent
-width) are listed in `src/khmer_synth/VENDORED.md`.
+width) and the spacing fix that stops letters overprinting are listed in `src/khmer_synth/VENDORED.md`.
 
 ## Text
 

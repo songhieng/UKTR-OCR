@@ -201,7 +201,7 @@ def sample_writer(
     # a fast hand also writes tighter, narrower and leans forward more
     style.character_spacing *= 1.0 - 0.15 * fluency
     style.horizontal_scale *= 1.0 - 0.10 * fluency
-    style.slant += 0.20 * fluency * float(rng.uniform(0.4, 1.0))
+    style.slant += 0.30 * fluency * float(rng.uniform(0.5, 1.0))
     if archetype == "shaky":
         style.writing_speed *= 0.75
     if rng.random() < 0.12:  # a bold, heavy-handed minority

@@ -46,7 +46,7 @@ PEN_MODELS: dict[str, PenModel] = {
         alpha=0.96,
         width_pressure=0.9,
         alpha_pressure=0.8,
-        speed_thinning=0.2,
+        speed_thinning=0.3,
         texture=0.05,
     ),
     "gel": PenModel(
@@ -55,7 +55,7 @@ PEN_MODELS: dict[str, PenModel] = {
         alpha=0.99,
         width_pressure=0.7,
         alpha_pressure=0.35,
-        speed_thinning=0.15,
+        speed_thinning=0.25,
         bleed=0.35,
     ),
     "fountain": PenModel(
