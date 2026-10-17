@@ -124,8 +124,13 @@ def sample_writer(
     cfg: WriterSamplingConfig | None = None,
     seed: int = 0,
     font_keys: list[str] | None = None,
+    font_weights: dict[str, float] | None = None,
 ) -> WriterStyle:
-    """Deterministically materialise writer ``writer_id``."""
+    """Deterministically materialise writer ``writer_id``.
+
+    ``font_weights`` (the preset's ``fonts.weights``, default 1) biases which
+    fonts a writer adopts as their own hand.
+    """
     cfg = cfg or WriterSamplingConfig()
     rng = make_rng("writer", seed, writer_id)
 
@@ -209,7 +214,8 @@ def sample_writer(
         style.pressure_mean = float(min(0.95, style.pressure_mean * 1.25))
     if font_keys:
         k = int(rng.integers(1, min(3, len(font_keys)) + 1))
-        style.preferred_fonts = [str(x) for x in rng.choice(font_keys, size=k, replace=False)]
+        w = np.array([float((font_weights or {}).get(f, 1.0)) for f in font_keys])
+        style.preferred_fonts = [str(x) for x in rng.choice(font_keys, size=k, replace=False, p=w / w.sum())]
         style.font_loyalty = float(rng.uniform(0.6, 0.95))
     return style
 
@@ -219,10 +225,12 @@ def writer_table(
     cfg: WriterSamplingConfig | None = None,
     seed: int = 0,
     font_keys: list[str] | None = None,
+    font_weights: dict[str, float] | None = None,
 ) -> dict[str, dict]:
     """Materialise a whole writer population (for ``writers.json``)."""
     return {
-        f"writer_{i:04d}": sample_writer(i, cfg, seed, font_keys).to_dict() for i in range(num_writers)
+        f"writer_{i:04d}": sample_writer(i, cfg, seed, font_keys, font_weights).to_dict()
+        for i in range(num_writers)
     }
 
 

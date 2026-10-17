@@ -24,6 +24,7 @@ from ..utils.geometry import (
     catmull_rom,
     dedupe_consecutive,
     polyline_length,
+    resample_count,
     resample_uniform,
     turn_angles,
 )
@@ -74,13 +75,15 @@ def smooth_stroke(
     spacing: float | None = None,
     smoothness: float = 1.0,
     corner_angle_deg: float | None = None,
+    savgol_window: int | None = None,
 ) -> np.ndarray:
     """Smooth + resample one stroke.
 
     ``smoothness`` in [0, 1] scales the effect.  ``corner_angle_deg`` overrides
     the config threshold above which a vertex is preserved as a hard corner -
     raising it makes the hand round off corners, which is what writing at speed
-    does.
+    does.  ``savgol_window`` overrides ``cfg.savgol_window`` (points), so the
+    caller can keep the filter a constant fraction of the letter size.
     """
     pts = dedupe_consecutive(np.asarray(points, dtype=np.float64))
     spacing = float(spacing if spacing is not None else cfg.point_spacing_px)
@@ -112,17 +115,18 @@ def smooth_stroke(
         for s in smoothed[1:]:
             out = np.vstack([out, s[1:]])
         if smoothness < 1.0:
-            # blend between the raw polyline and the smoothed curve
-            raw = resample_uniform(pts, spacing)
-            sm = resample_uniform(out, spacing)
-            n = min(len(raw), len(sm))
-            if n >= 2:
-                out = (1.0 - smoothness) * raw[:n] + smoothness * sm[:n]
+            # blend between the raw polyline and the smoothed curve.  Both are
+            # resampled to the same count by *normalised* arc length so blended
+            # points correspond; index-matching two curves of different length
+            # shears points along the stroke into visible waves and drops its tail.
+            n = max(len(resample_uniform(out, spacing)), 2)
+            out = (1.0 - smoothness) * resample_count(pts, n) + smoothness * resample_count(out, n)
 
     out = resample_uniform(out, spacing, min_points=cfg.min_points)
 
-    if cfg.savgol_window >= 5 and len(out) > cfg.savgol_window and cfg.savgol_mix > 0:
-        w = int(cfg.savgol_window) | 1
+    sg_win = int(cfg.savgol_window if savgol_window is None else savgol_window)
+    if sg_win >= 5 and len(out) > sg_win and cfg.savgol_mix > 0:
+        w = sg_win | 1
         try:
             f = savgol_filter(out, window_length=w, polyorder=cfg.savgol_poly, axis=0, mode="nearest")
             mix = float(np.clip(cfg.savgol_mix * smoothness, 0.0, 1.0))

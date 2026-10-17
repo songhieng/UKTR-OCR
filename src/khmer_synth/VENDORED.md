@@ -25,3 +25,9 @@ The upstream writer model drew every hand like a slow, careful writer (blunt str
   later deformations) from everything already written; auto-width canvases grow to the final ink
   width instead of shrinking the text. Overprint is now 0 % before deformation and ≈5 % after
   (mostly the intentional joining strokes). Checked by `tests/test_synth_spacing.py`.
+* `strokes/smoothing.py`: the raw/smoothed blend matched points by index although the two curves
+  have different lengths, which sheared points along the stroke into waves and dropped its tail; both
+  are now resampled to the same count by normalised arc length. `smooth_stroke` takes a per-call
+  `savgol_window`, which the generator scales with the em size.
+* `writer/style.py` + `dataset/build.py`: a writer's preferred fonts are drawn with `fonts.weights`.
+  Before, they were drawn uniformly, so with font loyalty 0.6–0.95 the configured weights barely mattered.

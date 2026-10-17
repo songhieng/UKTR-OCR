@@ -168,7 +168,9 @@ def build_dataset(
     fonts_probe = SampleGenerator(cfg)
     save_writers(
         out / "writers.json",
-        writer_table(ds.num_writers, cfg.writer, seed=ds.seed, font_keys=fonts_probe.fonts.keys),
+        writer_table(
+            ds.num_writers, cfg.writer, seed=ds.seed, font_keys=fonts_probe.fonts.keys, font_weights=cfg.fonts.weights
+        ),
     )
     del fonts_probe
 

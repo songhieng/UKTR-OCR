@@ -234,7 +234,7 @@ class SampleGenerator:
             raise ValueError("text is empty after normalisation")
 
         style = sample_writer(
-            writer_id, cfg.writer, seed=cfg.dataset.seed, font_keys=self.fonts.keys
+            writer_id, cfg.writer, seed=cfg.dataset.seed, font_keys=self.fonts.keys, font_weights=cfg.fonts.weights
         ).jittered(rng, amount=0.07)
 
         font = self.fonts.get(font_key) if font_key else self.pick_font(style, rng, norm)
@@ -293,6 +293,11 @@ class SampleGenerator:
         # angle above which a vertex is preserved as a hard corner rises with
         # the writer's fluency
         corner_angle = cfg.smoothing.corner_angle_deg + 46.0 * style.corner_rounding
+        # savgol_window is specified for a 64 px em; keep it a fixed fraction of
+        # the letter size so small writing is not smoothed out of shape.  It is
+        # what removes the skeleton's raster kinks (the interpolating spline
+        # alone passes through every one of them, giving wavy "trembling" lines).
+        sg_win = int(round(cfg.smoothing.savgol_window * em_px / 64.0))
         smoothed: list[Stroke] = []
         for s in strokes:
             pts = smooth_stroke(
@@ -301,6 +306,7 @@ class SampleGenerator:
                 spacing=spacing,
                 smoothness=style.stroke_smoothness,
                 corner_angle_deg=corner_angle,
+                savgol_window=sg_win,
             )
             if len(pts) == 0:
                 continue

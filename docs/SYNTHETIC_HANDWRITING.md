@@ -30,12 +30,14 @@ shadow, perspective, rotation, noise, JPEG, ink fade, stains). Every sample is r
 | Setting | Change | Reason |
 |---|---|---|
 | `fonts.exclude` | all 16 display faces (Moul, Bokor, Metal, Koulen, Bayon, Muol variants, …) | the skeleton traces their ornament, not the letter; no hand writes like that |
-| `fonts.weights` | Fasthand / Freehand ×4 | the closest letter shapes to everyday Khmer handwriting |
+| `fonts.weights` | Fasthand / Freehand ×12 (writers now honour the weights) | real handwriting letter shapes; ≈ half of all writers adopt one |
+| `smoothing.savgol_*` | window 15 (per 64 px em), poly 3, mix 1 (was off) | removes the font skeleton's raster kinks; the interpolating spline alone kept them as wavy, "trembling" lines |
+| `writer.pen_models` | pencil 0.15 → 0.07 (ballpoint 0.48) | pencil was the main source of faint, barely legible lines |
 | `layout.canvas_width` | 64 (with `auto_width`) | canvas = text width + padding → tight line crops instead of short words floating in empty canvas |
 | `writer.fluency` | 0.5 – 0.94 (was 0.05 – 1.0) | fast adult hands; no slow "child-like" writers, no illegible scrawl |
-| `writer.stroke_width` / `character_spacing` / `connect_probability` / `corner_rounding` | 0.022–0.055 / 0.8–1.08 / 0.2–0.9 / 0.2–1.0 | thinner pens, tighter letters, more joins, rounder corners (fast writing) |
+| `writer.stroke_width` / `character_spacing` / `connect_probability` / `corner_rounding` | 0.028–0.058 / 0.8–1.08 / 0.2–0.9 / 0.2–1.0 | thinner pens, tighter letters, more joins, rounder corners (fast writing) |
 | `render.width_pressure_bias/gain` | 0.3 / 1.15 (was 0.6 / 0.8) | pressure can thin a stroke to a tapered tail |
-| `degradation` | shadow 0.3→0.15, ink fade 0.3→0.15, uneven light 0.55→0.4 | stacked heavy vignettes + fading erased whole syllables |
+| `degradation` | shadow 0.3→0.08 (strength ≤ 0.3), ink fade 0.3→0.15 (≤ 0.4), uneven light 0.55→0.3 (≤ 0.3) | stacked heavy vignettes + fading erased whole syllables (label noise) |
 | `dataset` | degraded JPEG only, no trajectories | Stage 2 needs images; halves disk and time |
 
 Code changes for fast, confident strokes (tapered exits, no tremor on fast hands, speed-dependent

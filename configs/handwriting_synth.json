@@ -20,10 +20,10 @@
       "data/fonts"
     ],
     "weights": {
-      "Fasthand-Regular": 4.0,
-      "Freehand-Regular": 4.0,
-      "KhmerOS_fasthand": 4.0,
-      "KhmerOS_freehand": 4.0
+      "Fasthand-Regular": 12.0,
+      "Freehand-Regular": 12.0,
+      "KhmerOS_fasthand": 12.0,
+      "KhmerOS_freehand": 12.0
     },
     "exclude": [
       "Angkor-Regular",
@@ -86,9 +86,9 @@
     "alpha": 0.5,
     "corner_angle_deg": 68.0,
     "point_spacing_px": 2.2,
-    "savgol_window": 0,
-    "savgol_poly": 2,
-    "savgol_mix": 0.5,
+    "savgol_window": 15,
+    "savgol_poly": 3,
+    "savgol_mix": 1.0,
     "min_points": 3
   },
   "writer": {
@@ -161,8 +161,8 @@
       1.0
     ],
     "stroke_width": [
-      0.022,
-      0.055
+      0.028,
+      0.058
     ],
     "pressure_mean": [
       0.32,
@@ -221,10 +221,10 @@
       1.0
     ],
     "pen_models": {
-      "ballpoint": 0.4,
+      "ballpoint": 0.48,
       "gel": 0.2,
       "fountain": 0.15,
-      "pencil": 0.15,
+      "pencil": 0.07,
       "marker": 0.1
     },
     "ink_colors": {
@@ -357,15 +357,15 @@
       0.7,
       1.35
     ],
-    "p_uneven_light": 0.4,
+    "p_uneven_light": 0.3,
     "uneven_light_strength": [
       0.08,
-      0.42
+      0.3
     ],
-    "p_shadow": 0.15,
+    "p_shadow": 0.08,
     "shadow_strength": [
       0.1,
-      0.4
+      0.3
     ],
     "p_perspective": 0.25,
     "perspective_strength": [
@@ -390,7 +390,7 @@
     "p_ink_fade": 0.15,
     "ink_fade": [
       0.15,
-      0.55
+      0.4
     ],
     "p_stains": 0.1,
     "stain_count": [
