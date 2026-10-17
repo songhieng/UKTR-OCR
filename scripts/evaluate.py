@@ -80,6 +80,7 @@ def main():
     report = {"checkpoint": str(a.checkpoint), "global_step": ck.get("global_step"), "epoch": ck.get("epoch"),
               "param_counts": ck.get("param_counts"), "device": torch.cuda.get_device_name() if dev.type == "cuda" else "cpu",
               "amp_dtype": str(dtype), "groups": {}}
+    mods = (model.cfg.get("mafs") or {}).get("modalities")   # Stage-2 MAFS: report routing stats
     rng = random.Random(0)
     rows_html = []
     if dev.type == "cuda":
@@ -88,17 +89,18 @@ def main():
     for (src, split), df in df_all.groupby(["source_dataset", "split"]):
         df = df.reset_index(drop=True)
         ds = LineDataset(df, root, tok, d["img_height"], d["min_width"], d["max_width"],
-                         cfg["model"]["in_channels"], augment=False, filter_infeasible=False)
+                         model.cfg["in_channels"], augment=False, filter_infeasible=False, modalities=mods)
         loader = DataLoader(ds, batch_sampler=BucketBatchSampler(ds.widths, a.batch_size, shuffle=False),
                             collate_fn=collate, num_workers=min(4, d.get("num_workers", 4)))
         refs = df.transcription.values[ds.df_index]
         t0 = time.time()
-        m, preds = evaluate(model, loader, tok, dict(enumerate(refs)), dtype)
+        m, preds = evaluate(model, loader, tok, dict(enumerate(refs)), dtype, modalities=mods)
         m = {k.replace("all/", ""): v for k, v in m.items()}
         m["seconds"] = round(time.time() - t0, 1)
         report["groups"][f"{src}/{split}"] = m
         print(f"{src}/{split}: n={m['ctc_n']} CER ctc {m['ctc_cer']:.4f} tr {m['tr_cer']:.4f} "
-              f"KCC-ER ctc {m['ctc_kcc_er']:.4f} tr {m['tr_kcc_er']:.4f} line-acc tr {m['tr_line_acc']:.4f}")
+              f"KCC-ER ctc {m['ctc_kcc_er']:.4f} tr {m['tr_kcc_er']:.4f} line-acc tr {m['tr_line_acc']:.4f}"
+              + (f" route-acc {m['route_acc']:.3f}" if "route_acc" in m else ""))
         for i in rng.sample(range(len(ds)), min(a.examples, len(ds))):
             p = root / ds.paths[i].decode()
             dst = out_dir / "examples" / f"{src}_{split}_{p.name}"
@@ -121,11 +123,12 @@ def main():
         + "\n".join(rows_html) + "</table>", encoding="utf-8")
     L = ["# Stage-1 evaluation", "", f"checkpoint `{a.checkpoint}` (step {report['global_step']}), "
          f"device {report['device']}", "",
-         "| set | n | CER CTC | CER Tr | KCC-ER CTC | KCC-ER Tr | line-acc CTC | line-acc Tr | val loss |",
-         "|---|---|---|---|---|---|---|---|---|"]
+         "| set | n | CER CTC | CER Tr | KCC-ER CTC | KCC-ER Tr | line-acc CTC | line-acc Tr | val loss | route acc |",
+         "|---|---|---|---|---|---|---|---|---|---|"]
     for k, m in report["groups"].items():
         L.append(f"| {k} | {m['ctc_n']} | {m['ctc_cer']:.4f} | {m['tr_cer']:.4f} | {m['ctc_kcc_er']:.4f} | "
-                 f"{m['tr_kcc_er']:.4f} | {m['ctc_line_acc']:.4f} | {m['tr_line_acc']:.4f} | {m['val_loss']:.4f} |")
+                 f"{m['tr_kcc_er']:.4f} | {m['ctc_line_acc']:.4f} | {m['tr_line_acc']:.4f} | {m['val_loss']:.4f} | "
+                 f"{round(m['route_acc'], 3) if 'route_acc' in m else '-'} |")
     L += ["", f"Latency: {report.get('latency')}", f"Peak GPU memory: {report.get('peak_gpu_mem_gb')} GB", "",
           "Examples: see examples.html"]
     (out_dir / "eval_report.md").write_text("\n".join(L), encoding="utf-8")

@@ -1,13 +1,15 @@
-# UKTR Stage 1: Khmer OCR base-model pretraining
+# UKTR: Khmer OCR (Stage 1 pretraining + Stage 2 handwriting adaptation with MAFS)
 
-An independent PyTorch re-implementation of the **general (phase-1) recognizer** from
-*Towards Universal Khmer Text Recognition* (Kong et al., arXiv:2603.00702). The model is trained on
-public printed/synthetic Khmer and Latin text, and the resulting checkpoint is meant to initialize Stage 2
-(handwriting adaptation with supervised MAFS, which is **not** part of this repo yet).
+An independent PyTorch re-implementation of *Towards Universal Khmer Text Recognition*
+(Kong et al., arXiv:2603.00702).
+**Stage 1** trains the general recognizer on public printed/synthetic Khmer and Latin text.
+**Stage 2** adapts it to handwriting with MAFS: supervised (modality-labelled router), unsupervised
+(as in the paper) or without MAFS, plus a synthetic Khmer handwriting generator.
 
 The original code, weights, vocabulary and part of the data are unreleased. See
 [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md) for which values come from the paper and which are assumptions,
-and [docs/STAGE2_MAFS.md](docs/STAGE2_MAFS.md) for how Stage 2 loads these weights.
+[docs/STAGE2_MAFS.md](docs/STAGE2_MAFS.md) for Stage 2, and
+[docs/SYNTHETIC_HANDWRITING.md](docs/SYNTHETIC_HANDWRITING.md) for the handwriting generator.
 
 ## Model
 
@@ -93,16 +95,36 @@ python scripts/plot_curves.py --results results/stage1_full     # -> curves.png
 
 Checkpoints load with `torch.load(..., weights_only=True)` (no pickled code).
 
+## Stage 2 (handwriting, MAFS)
+
+```bash
+python scripts/fetch_fonts.py --out data/fonts
+python scripts/generate_handwriting.py --num-texts 100000 --workers 16   # synthetic handwriting (CPU)
+# real handwriting: data/raw/real_hw/labels.csv (image_path,text,writer_id) + images/
+python scripts/prepare_data.py   --config configs/stage2_data.yaml
+python scripts/build_manifest.py --config configs/stage2_data.yaml
+python scripts/build_vocab.py    --config configs/stage2_data.yaml --existing data/tokenizer/kcc_vocab.json
+python scripts/train.py --config configs/stage2.yaml               # supervised MAFS
+python scripts/train.py --config configs/stage2_unsupervised.yaml  # paper's MAFS
+python scripts/train.py --config configs/stage2_no_mafs.yaml       # ablation
+```
+
+Details, data format and assumptions: [docs/STAGE2_MAFS.md](docs/STAGE2_MAFS.md).
+
 ## Layout
 
 ```
 configs/   data.yaml, full.yaml, smoke.yaml (inherits full.yaml)
-src/       tokenizer/kcc.py  models/uktr.py, checkpoint.py  datasets/ocr_dataset.py
+           stage2_data.yaml, stage2.yaml, stage2_unsupervised.yaml, stage2_no_mafs.yaml,
+           handwriting_synth.json (generator preset)
+src/       tokenizer/kcc.py  models/uktr.py, mafs.py, checkpoint.py  datasets/ocr_dataset.py
            training/trainer.py, config.py  evaluation/metrics.py
+           khmer_synth/ (vendored synthetic-handwriting generator)
 scripts/   download_data, prepare_data, build_manifest, build_vocab, preflight, train,
-           evaluate, infer, export, plot_curves, vast_setup.sh
+           evaluate, infer, export, plot_curves, vast_setup.sh,
+           fetch_fonts, generate_handwriting
 tests/     pytest suite
-docs/      ASSUMPTIONS.md, STAGE2_MAFS.md
+docs/      ASSUMPTIONS.md, STAGE2_MAFS.md, SYNTHETIC_HANDWRITING.md
 ```
 
 ## Citation

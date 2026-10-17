@@ -2,7 +2,11 @@
 
 Outputs: data/manifest.csv, data/manifest_meta.json, results/data/data_report.{json,md}
 Manifest columns: image_path, transcription, source_dataset, language, split, width, height,
-license, handwritten, raw_transcription, md5, dhash
+license, handwritten, modality, group, raw_transcription, md5, dhash
+
+modality: the row's handwritten flag -> "handwritten", else the source's `modality` (default "printed").
+Sources without an official split are split by md5 of `group` (e.g. writer id) when given, else of the
+normalized text, so a writer / a text never straddles train and eval.
 """
 from __future__ import annotations
 
@@ -52,8 +56,9 @@ def assign_split(row, src_cfg) -> str:
     m = src_cfg.get("split_map", {})
     if row.official_split in m:
         return m[row.official_split]
-    # no official split: bucket by text hash (deterministic; identical texts share a split)
-    b = int(hashlib.md5(row.transcription.encode("utf-8")).hexdigest()[:8], 16) / 0xFFFFFFFF
+    # no official split: bucket by group (writer) or text hash (deterministic)
+    key = row.group or row.transcription
+    b = int(hashlib.md5(key.encode("utf-8")).hexdigest()[:8], 16) / 0xFFFFFFFF
     v, te = src_cfg.get("val_fraction", 0.005), src_cfg.get("test_fraction", 0.005)
     return "val" if b < v else "test" if b < v + te else "train"
 
@@ -84,7 +89,9 @@ def main():
         f = interim / f"{source}.csv"
         if not f.exists():
             print(f"[{source}] no interim CSV, skipped"); continue
-        df = pd.read_csv(f, keep_default_na=False, dtype={"raw_text": str, "official_split": str})
+        df = pd.read_csv(f, keep_default_na=False, dtype={"raw_text": str, "official_split": str, "group": str})
+        if "group" not in df:
+            df["group"] = ""
         df["_prio"] = prio
         frames.append(df)
         st = interim / f"{source}_stats.json"
@@ -102,6 +109,8 @@ def main():
     report["normalization_changed_rows"] = int((df.transcription != df.raw_text.str.strip()).sum())
     df = df[df._bad.isna()].copy()
     df["language"] = [detect_language(t) for t in df.transcription]
+    df["modality"] = ["handwritten" if str(hw).lower() == "true" else cfg["sources"][s].get("modality", "printed")
+                      for s, hw in zip(df.source_dataset, df.handwritten)]
     df["split"] = [assign_split(r, cfg["sources"][r.source_dataset]) for r in df.itertuples()]
 
     # ---- de-duplicate: train copies first so eval copies are the ones removed (no leakage)
@@ -146,6 +155,7 @@ def main():
         stats[f"{src}/{sp}"] = {"n": len(e), "chars": describe(e.n_chars), "kcc": describe(e.n_kcc),
                                 "width": describe(e.width), "height": describe(e.height),
                                 "language": e.language.value_counts().to_dict(),
+                                "modality": e.modality.value_counts().to_dict(),
                                 "handwritten": int(e.handwritten.astype(str).str.lower().eq("true").sum())}
     report["stats"] = stats
     tr_clusters = Counter(c for t in df[df.split == "train"].transcription for c in segment(t))
@@ -166,7 +176,7 @@ def main():
 
     # ---- write
     cols = ["image_path", "transcription", "source_dataset", "language", "split", "width", "height",
-            "license", "handwritten", "raw_text", "md5", "dhash"]
+            "license", "handwritten", "modality", "group", "raw_text", "md5", "dhash"]
     out = df.sort_values(["source_dataset", "split", "image_path"])[cols].rename(
         columns={"raw_text": "raw_transcription"})
     man = resolve(cfg["manifest"])

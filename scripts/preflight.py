@@ -23,10 +23,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.datasets.ocr_dataset import ctc_min_frames, make_collate  # noqa: E402
 from src.evaluation.metrics import cer  # noqa: E402
 from src.models.checkpoint import load_stage1, save_checkpoint  # noqa: E402
-from src.models.uktr import UKTRBase, count_parameters  # noqa: E402
-from src.tokenizer.kcc import KCCTokenizer, has_khmer  # noqa: E402
+from src.models.uktr import count_parameters  # noqa: E402
+from src.tokenizer.kcc import has_khmer  # noqa: E402
 from src.training.config import load_config, resolve  # noqa: E402
-from src.training.trainer import amp_dtype, build_datasets, compute_losses, seed_everything  # noqa: E402
+from src.training.trainer import amp_dtype, build_datasets, build_model, compute_losses, seed_everything  # noqa: E402
 
 
 def main():
@@ -51,12 +51,27 @@ def main():
         rep["gpu"] = "none (CPU only: full training is impractical)"
     print("1 GPU:", rep["gpu"])
 
-    tok = KCCTokenizer.load(resolve(cfg["paths"]["tokenizer"]))
+    model, tok = build_model(cfg)
+    model = model.to(dev)
     cfg["data"]["max_val_per_source"] = 64
     train_ds, val_ds, tr_df, _ = build_datasets(cfg, tok)
     collate = make_collate(tok)
-    model = UKTRBase({**cfg["model"], "vocab_size": len(tok)}).to(dev)
     rep["param_counts"] = count_parameters(model)
+
+    # 9 (Stage 2) Stage-1 weights loaded and the fresh MAFS is an identity: same outputs as Stage 1
+    if cfg.get("stage", 1) == 2:
+        base, _, _ = load_stage1(resolve(cfg["init_checkpoint"]), device=dev)
+        b0 = collate([train_ds[i] for i in range(min(8, len(train_ds)))])
+        model.eval(); base.eval()
+        with torch.no_grad():
+            o1 = model(b0["images"].to(dev), b0["widths"].to(dev), b0["tgt_in"].to(dev))
+            o0 = base(b0["images"].to(dev), b0["widths"].to(dev), b0["tgt_in"].to(dev))
+        diff = max(float((o1[k] - o0[k]).abs().max()) for k in ("ctc_logits", "dec_logits"))
+        good = diff < 1e-4
+        rep["9_stage2_init_identity"] = {"ok": good, "max_abs_diff": diff, "mafs": model.cfg.get("mafs")}
+        ok &= good
+        print("9 Stage-2 init == Stage-1:", rep["9_stage2_init_identity"])
+        del base
 
     # 2 shapes
     batch = collate([train_ds[i] for i in range(min(8, len(train_ds)))])
@@ -73,7 +88,7 @@ def main():
     print("2 shapes:", rep["2_shapes"])
 
     # 3 forward/backward
-    loss, lc, le = compute_losses(model, batch, tok, dtype, 0.3)
+    loss, lc, le, _ = compute_losses(model, batch, tok, dtype, 0.3)
     loss.backward()
     gfinite = all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None)
     good = bool(torch.isfinite(loss) and gfinite)
@@ -102,7 +117,7 @@ def main():
     hist = []
     for step in range(1, a.overfit_steps + 1):
         model.train()
-        loss, _, _ = compute_losses(model, fb, tok, dtype, 0.0)
+        loss, *_ = compute_losses(model, fb, tok, dtype, 0.0)
         opt.zero_grad(); loss.backward(); torch.nn.utils.clip_grad_norm_(model.parameters(), 50); opt.step()
         if step % 50 == 0 or step == a.overfit_steps:
             model.eval()
@@ -145,7 +160,7 @@ def main():
         wb = collate([train_ds[i] for i in widest])
         model.train()
         try:
-            loss, _, _ = compute_losses(model, wb, tok, dtype, 0.3)
+            loss, *_ = compute_losses(model, wb, tok, dtype, 0.3)
             loss.backward(); model.zero_grad(set_to_none=True)
             peak, oom = round(torch.cuda.max_memory_allocated() / 1e9, 2), False
         except torch.cuda.OutOfMemoryError:

@@ -12,3 +12,9 @@ huggingface_hub
 matplotlib
 tensorboard
 pytest
+# Stage 2 synthetic handwriting (src/khmer_synth, CPU only)
+scipy
+scikit-image
+fonttools
+uharfbuzz
+tqdm

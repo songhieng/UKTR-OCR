@@ -13,6 +13,7 @@ sources:                        # order = priority when de-duplicating across so
     revision: main
     files: [trainset.parquet, validset.parquet, testset.parquet]
     split_map: {trainset: train, validset: val, testset: test}   # official splits kept
+    modality: printed
     license: >-
       HF card metadata: MIT. Card body contains an unfilled placeholder
       ("[Specify your license here...]"). Used under MIT per metadata; confirm with the
@@ -26,6 +27,7 @@ sources:                        # order = priority when de-duplicating across so
     # texts never straddle train/eval.
     val_fraction: 0.005
     test_fraction: 0.005
+    modality: printed
     license: >-
       CONFLICTING: HF card metadata says apache-2.0, card body says "Research and academic
       use only. Commercial use is not permitted." Treated as research-only, non-commercial.
@@ -35,6 +37,7 @@ sources:                        # order = priority when de-duplicating across so
     images_url: "https://open-images-dataset.s3.amazonaws.com/ocr/{split}.tgz"
     splits: [train, validation, test]
     split_map: {train: train, validation: val, test: test}
+    modality: scene            # lines flagged handwritten -> handwritten
     # The paper trains on train+validation crops (518,726 lines, vertical removed).
     # Default here keeps validation held out for evaluation; set true to match the paper.
     validation_to_train: false

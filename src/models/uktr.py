@@ -4,8 +4,8 @@ Paper: "Towards Universal Khmer Text Recognition" (arXiv:2603.00702). Values the
 states are marked [paper]; everything else is an assumption documented in docs/ASSUMPTIONS.md.
 
 Stage-2 hook: `feature_selector` sits between the encoder and both decoders (where MAFS goes
-in the paper). It is None in Stage 1 and owns no parameters, so a Stage-2 model that sets it
-loads a Stage-1 state dict with only `feature_selector.*` keys missing.
+in the paper). It is None in Stage 1 and owns no parameters; with cfg["mafs"] set it is a MAFS
+module, and a Stage-1 state dict loads into it with only `feature_selector.*` keys missing.
 """
 from __future__ import annotations
 
@@ -14,6 +14,8 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from .mafs import MAFS
 
 DEFAULT_MODEL_CONFIG = {
     "in_channels": 1,
@@ -25,6 +27,7 @@ DEFAULT_MODEL_CONFIG = {
     "enc_layers": 3, "dec_layers": 3,                                    # [paper]
     "max_dec_len": 256,
     "vocab_size": None,                   # set from the tokenizer
+    "mafs": None,                         # Stage 2: dict of MAFS kwargs (n_sources, adapter_dim, ...)
 }
 
 
@@ -85,7 +88,7 @@ class UKTRBase(nn.Module):
                                                batch_first=True, norm_first=True)
         self.encoder = nn.TransformerEncoder(enc_layer, cfg["enc_layers"], norm=nn.LayerNorm(d),
                                              enable_nested_tensor=False)
-        self.feature_selector = None          # Stage 2: MAFS module goes here
+        self.feature_selector = MAFS(d, **cfg["mafs"]) if cfg.get("mafs") else None
         self.ctc_head = nn.Linear(d, V)
         self.tok_emb = nn.Embedding(V, d)
         dec_layer = nn.TransformerDecoderLayer(d, cfg["nhead"], cfg["dim_ff"], cfg["dropout"],
@@ -124,9 +127,11 @@ class UKTRBase(nn.Module):
         return G, G1d, col_mask, feat_w
 
     def select_features(self, G, G1d, col_mask):
+        """-> (H, U1d, aux). aux may carry `route_logits` from MAFS."""
         if self.feature_selector is None:
-            return G, G1d
-        return self.feature_selector(G, G1d, col_mask)
+            return G, G1d, {}
+        out = self.feature_selector(G, G1d, col_mask)
+        return out if len(out) == 3 else (*out, {})
 
     # ---- heads --------------------------------------------------------------------
     def ctc_logits(self, G1d):
@@ -145,17 +150,19 @@ class UKTRBase(nn.Module):
 
     def forward(self, images, widths, tgt_in, tgt_pad_mask=None):
         G, G1d, col_mask, feat_w = self.encode(images, widths)
-        H, U1d = self.select_features(G, G1d, col_mask)
+        H, U1d, aux = self.select_features(G, G1d, col_mask)
         return {"ctc_logits": self.ctc_logits(U1d), "feat_w": feat_w,
-                "dec_logits": self.decode_logits(H, col_mask, tgt_in, tgt_pad_mask)}
+                "dec_logits": self.decode_logits(H, col_mask, tgt_in, tgt_pad_mask), **aux}
 
     # ---- inference ----------------------------------------------------------------
     @torch.no_grad()
     def recognize(self, images, widths, bos_id, eos_id, max_len=None, decoders=("ctc", "tr")):
         """Greedy decoding. Returns dict of id lists per decoder."""
         G, G1d, col_mask, feat_w = self.encode(images, widths)
-        H, U1d = self.select_features(G, G1d, col_mask)
+        H, U1d, aux = self.select_features(G, G1d, col_mask)
         out = {}
+        if "route_logits" in aux:
+            out["route_probs"] = aux["route_logits"].float().softmax(-1).tolist()
         if "ctc" in decoders:
             best = self.ctc_logits(U1d).argmax(-1)
             out["ctc"] = [best[b, :feat_w[b]].tolist() for b in range(best.shape[0])]
@@ -212,4 +219,5 @@ def count_parameters(model: UKTRBase) -> dict:
     return {"backbone": n(model.backbone), "encoder": n(model.encoder) + n(model.proj),
             "ctc_head": n(model.ctc_head),
             "transformer_decoder": n(model.decoder) + n(model.tok_emb) + n(model.dec_head),
+            "mafs": n(model.feature_selector) if model.feature_selector is not None else 0,
             "total": n(model)}

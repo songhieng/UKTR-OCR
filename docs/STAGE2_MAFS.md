@@ -1,62 +1,69 @@
-# Stage 2: loading the Stage-1 weights and inserting supervised MAFS
+# Stage 2: handwriting adaptation with supervised MAFS
 
-Stage 1 trains the backbone, encoder, CTC head and Transformer decoder **without MAFS**. In the paper,
-MAFS is placed after the visual encoder and trained during phase 2 (modality adapting). This document
-describes the interface Stage 2 plugs into. Nothing here is implemented yet.
+Stage 2 starts from the Stage-1 checkpoint, inserts MAFS (Modality-Aware Adaptive Feature Selector)
+between the encoder and both decoders, and fine-tunes on handwriting mixed with replayed printed data.
+One config switch selects each variant you want to compare:
 
-## Where MAFS plugs in
+| Config | MAFS | Router training | Paper equivalent |
+|---|---|---|---|
+| `configs/stage2.yaml` | on, n = 3 (printed, scene, handwritten) | **supervised**: `+ 0.1 · CE(router, modality)` | your addition (paper lists it as a limitation) |
+| `configs/stage2_unsupervised.yaml` | on, n = 5 | recognition loss only | UKTR (D + S&H) |
+| `configs/stage2_no_mafs.yaml` | off | — | "w/o MAFS" ablation |
 
-```
-image -> backbone -> encoder -> G (B,H',W',d), G1d = mean_H(G) (B,W',d)
-                                   |
-                        model.feature_selector(G, G1d, col_mask)  -> (H, U1d)
-                                   |                  |
-                        Transformer decoder(H)     CTC head(U1d)
-```
+## Run
 
-`UKTRBase.feature_selector` is `None` in Stage 1 and has no parameters. Assigning a module adds only
-`feature_selector.*` keys; every existing parameter keeps its name and shape.
+```bash
+# data (see docs/SYNTHETIC_HANDWRITING.md for the synthetic part)
+python scripts/generate_handwriting.py --num-texts 100000 --workers 16
+#   put your real lines in data/raw/real_hw/{labels.csv, images/} (or edit configs/stage2_data.yaml)
+python scripts/prepare_data.py   --config configs/stage2_data.yaml
+python scripts/build_manifest.py --config configs/stage2_data.yaml
+python scripts/build_vocab.py    --config configs/stage2_data.yaml --existing data/tokenizer/kcc_vocab.json
 
-Interface: `forward(G, G1d, col_mask) -> (H, U1d)` with the same shapes as the inputs. `col_mask` is
-`True` on padded columns. Pool z only over valid columns (`~col_mask`).
-
-## Loading
-
-```python
-from src.models.uktr import UKTRBase
-from src.models.checkpoint import load_stage1
-
-ck_path = "checkpoints/uktr_base_stage1_best.pt"
-model, tok, ck = load_stage1(ck_path)          # plain Stage-1 model
-model.feature_selector = SupervisedMAFS(d=512, n_sources=5, p=128)   # your Stage-2 module
-
-# or build first, then load (raises on any unexpected key, missing non-MAFS key or shape mismatch):
-model = UKTRBase(ck["model_config"]); model.feature_selector = SupervisedMAFS(...)
-model, tok, ck = load_stage1(ck_path, model=model)
+# train (same --set overrides as Stage 1 for a 16 GB GPU)
+python scripts/preflight.py --config configs/stage2.yaml --set train.batch_size=16
+python scripts/train.py     --config configs/stage2.yaml --set train.batch_size=16 train.grad_accum=2
+python scripts/evaluate.py  --checkpoint checkpoints/stage2_supervised/uktr_stage2_best.pt --splits val test
 ```
 
-Reuse the tokenizer from the checkpoint (`tok`). Its vocabulary and normalization rules define the
-output layer. If Stage-2 data contains clusters that are not in the vocabulary, they still encode
-losslessly through the code-point fallback. Adding new vocabulary entries would change the shapes of
-`ctc_head`, `tok_emb` and `dec_head`; expand those rows explicitly if you need that.
+No real handwriting yet? Remove `real_hw` from `adapt_sources` / `val_sources` in `configs/stage2.yaml`
+and set `best_metric: khmer_synth_hw/tr_cer` (and remember that number flatters the model).
 
-## Keeping pretrained behaviour at initialization
+## Real handwriting label file
 
-The paper's adapters project to p=128, and the decoders expect d=512. To keep the Stage-1 decoders
-valid from step 0, make each adapter residual and zero-initialize its output projection:
-`A_i(x) = x + W_up,i(act(W_down,i x))`, with `W_down: 512→128` and `W_up: 128→512` (initialized to 0).
-Then `H = Σ_i r_i A_i(G) = G` at initialization for any router output r. Stage-2 training therefore starts
-exactly from the Stage-1 model.
+`configs/stage2_data.yaml` → `real_hw` reads `data/raw/real_hw/labels.csv` with columns
+`image_path` (relative to `images_root`), `text`, `writer_id`. Also accepted: tsv / headerless txt
+(`header: false` → columns 0, 1), jsonl, local parquet with embedded images (`type: parquet`), an
+existing split column (`split_column`, `split_map`). Without `group_column` the split falls back to
+text hashing; with it (recommended) the split is writer-independent, so validation measures new writers.
 
-## Supervised routing (your Stage 2 addition; not in the paper)
+## What happens in training
 
-The paper trains the router only through the recognition loss and lists the lack of modality
-supervision as a limitation. To supervise it, add `L_route = CE(router_logits, modality_label)`
-for samples with known modality (printed / scene / handwritten …), so that
-`L = L_CTC + L_TR + λ L_route`. Stage 1 deliberately trains no router: the Stage-1 data is almost
-entirely printed or synthetic and can't teach modality separation.
+* **Init**: model config and tokenizer come from `init_checkpoint`; Stage-1 weights load with only
+  `feature_selector.*` missing (anything else raises). Input height must match Stage 1.
+* **MAFS** (`src/models/mafs.py`): z = mean of the height-pooled features over valid columns →
+  router MLP → softmax r over n sources; n residual bottleneck adapters (512→128→512, up-projection
+  zero-initialised) applied to both the 2D features (Transformer path) and the 1D features (CTC path);
+  outputs are r-weighted sums. Zero-init makes a fresh MAFS an exact identity, so step 0 reproduces the
+  Stage-1 model (checked by `preflight.py` check 9 and `tests/test_stage2.py`).
+* **Loss**: `L = L_CTC + L_TR + route_loss_weight · CE(router_logits, modality)`; rows with unknown
+  modality are ignored. Modality per row comes from the manifest (`printed` / `scene` /
+  `handwritten`; HierText lines flagged handwritten count as handwritten).
+* **Sampling**: every epoch = all `adapt_sources` rows (× `repeat`) + a fresh random draw of
+  `replay_sources` rows, `replay_ratio` × as many ([paper] equal numbers, against forgetting printed text).
+* **LR**: [paper] cyclic 1e-6 … 1e-5 for pretrained weights; MAFS gets `mafs_lr_scale` × that (default 10×).
+* **Selection**: `best_metric: real_hw/tr_cer` (Transformer CER on real handwriting). Logged extras:
+  `val_route_loss`, `route_acc`, and `route_p/<modality>/src<j>` (mean routing weight per modality —
+  for the unsupervised variant this shows whether sources specialised at all).
 
-## Suggested phase-2 recipe from the paper
+## Assumptions (not specified by the paper)
 
-50 epochs, cyclic LR 1e-6 … 1e-5. Mix in an equal number of document (Stage-1) images with the
-scene/handwritten data to avoid forgetting printed text.
+Residual/zero-init adapters; adapters shared between the 2D and 1D paths; router = LayerNorm → 256 →
+GELU → n; supervised weight 0.1; MAFS LR ×10; n = 3 for the supervised variant (the paper finds
+n = 3 and n = 5 equivalent).
+
+## Loading a Stage-2 checkpoint
+
+`load_stage1(path)` rebuilds MAFS from the stored `model_config["mafs"]` and loads strictly, so
+`scripts/evaluate.py` and `scripts/infer.py` work unchanged; `model.recognize(...)` also returns
+`route_probs` per image.

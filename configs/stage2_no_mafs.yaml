@@ -1,0 +1,10 @@
+# Stage 2 ablation without MAFS (paper's "w/o MAFS" row): plain fine-tuning of the Stage-1 model.
+base: stage2.yaml
+experiment: stage2_no_mafs
+paths:
+  out_dir: checkpoints/stage2_no_mafs
+  results_dir: results/stage2_no_mafs
+mafs:
+  enabled: false
+train:
+  route_loss_weight: 0.0

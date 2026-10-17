@@ -1,0 +1,42 @@
+# Stage 2: handwriting adaptation with SUPERVISED MAFS (router trained with modality labels).
+# Model architecture + tokenizer come from init_checkpoint; the `model:` section of full.yaml is
+# only used for max_dec_len / in_channels bookkeeping and must match Stage 1.
+base: full.yaml
+stage: 2
+experiment: stage2_mafs_supervised
+init_checkpoint: checkpoints/uktr_base_stage1_best.pt
+
+paths:
+  manifest: data/manifest_stage2.csv
+  tokenizer: null                     # taken from init_checkpoint
+  out_dir: checkpoints/stage2_supervised
+  results_dir: results/stage2_mafs_supervised
+
+data:
+  adapt_sources: [real_hw, khmer_synth_hw]            # every sample, every epoch
+  replay_sources: [khmer_printed, khmer_synthetic, hiertext]   # resampled each epoch
+  replay_ratio: 1.0                   # [paper] equal number of document images mixed in
+  repeat: {real_hw: 1}                # oversample a small real set, e.g. {real_hw: 3}
+  val_sources: [real_hw, khmer_synth_hw, khmer_printed, hiertext]
+  max_val_per_source: 2000
+
+mafs:
+  enabled: true
+  modalities: [printed, scene, handwritten]   # manifest `modality` values; order = router classes
+  n_sources: 3                        # supervised: must equal len(modalities). [paper] n=3 ~ n=5
+  adapter_dim: 128                    # [paper] p = 128
+  router_hidden: 256
+  dropout: 0.1
+
+train:
+  epochs: 50                          # [paper] phase 2; stop early on real_hw CER
+  lr_min: 1.0e-6                      # [paper] phase-2 cyclic LR bounds
+  lr_max: 1.0e-5
+  mafs_lr_scale: 10                   # new MAFS params: 1e-5 .. 1e-4 (assumption)
+  route_loss_weight: 0.1              # L = L_CTC + L_TR + 0.1 * CE(router, modality); 0 = unsupervised
+  cyclic_step_size_up: 2000
+  eval_every: 2000
+  save_every: 500
+  best_metric: real_hw/tr_cer         # select on REAL handwriting; use khmer_synth_hw/tr_cer if none
+  best_name: uktr_stage2_best.pt
+  last_name: uktr_stage2_last.pt

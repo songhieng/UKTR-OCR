@@ -1,14 +1,21 @@
 """Extract / crop images to data/images/<source>/<split>/ and write data/interim/<source>.csv.
 
 Per row: image_path, raw_text, source_dataset, official_split, width, height, license, md5,
-dhash, handwritten. Corrupt or undecodable images are counted in <source>_stats.json and skipped.
+dhash, handwritten, group. Corrupt or undecodable images are counted in <source>_stats.json and skipped.
+
+Source types (configs/*data.yaml `type:`):
+  parquet   parquet files with embedded images (HF datasets; local ones via `path:`)
+  hiertext  HierText annotations + images (line crops)
+  labels    your own data: a csv/tsv/txt/jsonl label file + an image folder (see configs/stage2_data.yaml)
 
   python scripts/prepare_data.py                  # all downloaded sources
   python scripts/prepare_data.py --sources hiertext --workers 16
+  python scripts/prepare_data.py --config configs/stage2_data.yaml   # Stage-2 handwriting sources
 """
 from __future__ import annotations
 
 import argparse
+import csv
 import gzip
 import hashlib
 import io
@@ -29,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.training.config import load_config, resolve  # noqa: E402
 
 COLUMNS = ["image_path", "raw_text", "source_dataset", "official_split", "width", "height",
-           "license", "md5", "dhash", "handwritten"]
+           "license", "md5", "dhash", "handwritten", "group"]
 
 
 def dhash(im: Image.Image) -> str:
@@ -50,7 +57,8 @@ def check_image(data: bytes):
 
 
 # ---------------------------------------------------------------- parquet sources
-def parquet_task(task, data_root: Path, source: str, license_: str):
+def parquet_task(task, data_root: Path, source: str, license_: str, text_column=None, image_column="image",
+                 handwritten=False):
     pq_path, rg, split, stem = task
     pf = pq.ParquetFile(pq_path)
     tbl = pf.read_row_group(rg).to_pylist()
@@ -58,8 +66,9 @@ def parquet_task(task, data_root: Path, source: str, license_: str):
     out_dir = data_root / "images" / source / split
     out_dir.mkdir(parents=True, exist_ok=True)
     for i, r in enumerate(tbl):
-        text = r.get("label", r.get("text"))
-        data = (r.get("image") or {}).get("bytes")
+        text = r.get(text_column) if text_column else r.get("label", r.get("text"))
+        img = r.get(image_column)
+        data = img.get("bytes") if isinstance(img, dict) else img
         if not data or text is None:
             stats["missing_field"] += 1; continue
         try:
@@ -69,18 +78,67 @@ def parquet_task(task, data_root: Path, source: str, license_: str):
         name = f"{stem}_{rg:04d}_{i:04d}.{ext}"
         (out_dir / name).write_bytes(data)          # original bytes, no re-encoding
         rows.append([f"images/{source}/{split}/{name}", text, source, split, im.width, im.height, license_,
-                     hashlib.md5(data).hexdigest(), dhash(im), False])
+                     hashlib.md5(data).hexdigest(), dhash(im), handwritten, ""])
         stats["ok"] += 1
     return rows, stats
 
 
 def parquet_tasks(source, src, raw: Path):
-    tasks = []
-    for f in sorted((raw / source).rglob("*.parquet")):
+    tasks, root = [], source_root(source, src, raw)
+    for f in ([root] if root.is_file() else sorted(root.rglob("*.parquet"))):
         split = src.get("split_map", {}).get(f.stem, "")   # khmer_synthetic: no official split
         stem = f.stem.replace("-of-", "_").replace("train-", "s") if source == "khmer_synthetic" else f.stem
         tasks += [(str(f), rg, split or "all", stem) for rg in range(pq.ParquetFile(f).num_row_groups)]
     return tasks
+
+
+def source_root(source, src, raw: Path) -> Path:
+    return resolve(src["path"]) if "path" in src else resolve(src["labels"]) if "labels" in src else raw / source
+
+
+# ---------------------------------------------------------------- own label files
+def read_labels(src) -> pd.DataFrame:
+    path = resolve(src["labels"])
+    fmt = src.get("format") or path.suffix.lstrip(".").lower()
+    if fmt == "jsonl":
+        return pd.read_json(path, lines=True, dtype=False)
+    tsv = fmt in ("tsv", "txt")
+    return pd.read_csv(path, sep="\t" if tsv else ",", header=0 if src.get("header", True) else None,
+                       dtype=str, keep_default_na=False, quoting=csv.QUOTE_NONE if tsv else csv.QUOTE_MINIMAL)
+
+
+def labels_tasks(src, chunk=256):
+    df = read_labels(src)
+    headerless = not src.get("header", True)
+    ic, tc = src.get("image_column", 0 if headerless else "image_path"), src.get("text_column", 1 if headerless else "text")
+    root = resolve(src.get("images_root", resolve(src["labels"]).parent))
+    sc, gc = src.get("split_column"), src.get("group_column")
+    rows = [(str(root / str(r[ic])), str(r[tc]), str(r[sc]) if sc else "all", str(r[gc]) if gc else "")
+            for _, r in df.iterrows()]
+    return [rows[i:i + chunk] for i in range(0, len(rows), chunk)]
+
+
+def labels_task(task, data_root: Path, source: str, license_: str, handwritten: bool):
+    rows, stats = [], Counter()
+    out_dir = data_root / "images" / source
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for src_path, text, split, group in task:
+        try:
+            data = Path(src_path).read_bytes()
+        except OSError:
+            stats["image_missing"] += 1; continue
+        try:
+            im, ext = check_image(data)
+        except Exception:
+            stats["corrupt_image"] += 1; continue
+        if not text.strip():
+            stats["empty_text"] += 1; continue
+        name = f"{hashlib.md5(src_path.encode('utf-8')).hexdigest()[:20]}.{ext}"   # unique per source path
+        (out_dir / name).write_bytes(data)
+        rows.append([f"images/{source}/{name}", text, source, split, im.width, im.height, license_,
+                     hashlib.md5(data).hexdigest(), dhash(im), handwritten, group])
+        stats["ok"] += 1
+    return rows, stats
 
 
 # ---------------------------------------------------------------- HierText
@@ -133,7 +191,7 @@ def hiertext_task(ann, img_dir: Path, data_root: Path, split: str, cfg: dict, li
             im = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
             rows.append([f"images/hiertext/{split}/{name}", text, "hiertext", split, crop.shape[1],
                          crop.shape[0], license_, hashlib.md5(data).hexdigest(), dhash(im),
-                         bool(line.get("handwritten", False))])
+                         bool(line.get("handwritten", False)), ""])
             stats["ok"] += 1
     return rows, stats
 
@@ -163,10 +221,15 @@ def main():
             src, out_csv = cfg["sources"][source], interim / f"{source}.csv"
             if out_csv.exists() and not a.force:
                 print(f"[{source}] {out_csv} exists, skipping (use --force)"); continue
-            if not (raw / source).exists():
-                print(f"[{source}] not downloaded, skipping"); continue
+            if not source_root(source, src, raw).exists():
+                print(f"[{source}] not found at {source_root(source, src, raw)}, skipping"); continue
             print(f"[{source}]")
-            if source == "hiertext":
+            kind = src.get("type", "hiertext" if source == "hiertext" else "parquet")
+            hw = src.get("modality") == "handwritten"
+            if kind == "labels":
+                fn = partial(labels_task, data_root=data_root, source=source, license_=src["license"], handwritten=hw)
+                rows, stats = run(pool, fn, labels_tasks(src), source)
+            elif kind == "hiertext":
                 rows, stats = [], Counter()
                 for split in src["splits"]:
                     gt = raw / "hiertext" / "gt" / f"{split}.jsonl.gz"
@@ -179,7 +242,9 @@ def main():
                     r, s = run(pool, fn, anns, f"hiertext/{split}")
                     rows += r; stats.update(s)
             else:
-                fn = partial(parquet_task, data_root=data_root, source=source, license_=src["license"])
+                fn = partial(parquet_task, data_root=data_root, source=source, license_=src["license"],
+                             text_column=src.get("text_column"), image_column=src.get("image_column", "image"),
+                             handwritten=hw)
                 rows, stats = run(pool, fn, parquet_tasks(source, src, raw), source)
             df = pd.DataFrame(rows, columns=COLUMNS).sort_values("image_path", kind="stable")
             df.to_csv(out_csv, index=False, encoding="utf-8")

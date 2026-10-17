@@ -59,7 +59,7 @@ def _downup(im):
 class LineDataset(Dataset):
     def __init__(self, df: pd.DataFrame, data_root, tokenizer: KCCTokenizer, img_height=32,
                  min_width=16, max_width=1600, in_channels=1, augment=False, max_label_len=254,
-                 feat_stride=4, filter_infeasible=True):
+                 feat_stride=4, filter_infeasible=True, modalities=None):
         self.root = Path(data_root)
         self.tok, self.h, self.c, self.augment = tokenizer, img_height, in_channels, augment
         tw = target_width(df.width.values, df.height.values, img_height, min_width, max_width)
@@ -78,6 +78,10 @@ class LineDataset(Dataset):
         self.paths = np.array(kept.image_path.tolist(), dtype="S")
         self.widths = tw[keep]
         self.sources = np.array(kept.source_dataset.tolist(), dtype="S")
+        # Stage 2: modality class per sample for the supervised router (-1 = unknown / not routed)
+        mod = {m: i for i, m in enumerate(modalities or [])}
+        col = kept.modality.tolist() if "modality" in kept else [""] * len(kept)
+        self.modality_ids = np.array([mod.get(m, -1) for m in col], dtype=np.int64)
         self.df_index = np.flatnonzero(keep)    # row in the source dataframe for each sample
         self.aug = self._build_aug() if augment else None
 
@@ -102,7 +106,7 @@ class LineDataset(Dataset):
 
     def __getitem__(self, i):
         x = self.load_image(self.root / self.paths[i].decode(), self.widths[i])
-        return x, int(self.widths[i]), self.label(i), i
+        return x, int(self.widths[i]), self.label(i), i, int(self.modality_ids[i])
 
 
 class Collate:
@@ -113,7 +117,7 @@ class Collate:
 
     def __call__(self, batch):
         tok = self.tok
-        xs, ws, labels, idx = zip(*batch)
+        xs, ws, labels, idx, *mod = zip(*batch)
         C, H = xs[0].shape[:2]
         W = math.ceil(max(ws) / self.pad_multiple) * self.pad_multiple
         images = torch.zeros(len(xs), C, H, W)
@@ -130,6 +134,7 @@ class Collate:
             "images": images, "widths": torch.tensor(ws), "tgt_in": tgt_in, "tgt_out": tgt_out,
             "ctc_targets": torch.from_numpy(np.concatenate(labels).astype(np.int64)),
             "ctc_lengths": torch.tensor([len(l) for l in labels]), "index": torch.tensor(idx),
+            "modality": torch.tensor(mod[0] if mod else [-1] * len(xs)),
         }
 
 
@@ -156,8 +161,8 @@ class BucketBatchSampler(torch.utils.data.Sampler):
             order = np.argsort(self.widths, kind="stable")
             return [order[i:i + self.bs].tolist() for i in range(0, n, self.bs)]
         rng = np.random.default_rng([self.seed, self.epoch])
-        order, chunk, out = rng.permutation(n), self.bs * self.mult, []
-        for s in range(0, n, chunk):
+        order, chunk, out = self.epoch_order(rng), self.bs * self.mult, []
+        for s in range(0, len(order), chunk):
             c = order[s:s + chunk]
             c = c[np.argsort(self.widths[c], kind="stable")]
             out += [c[i:i + self.bs].tolist() for i in range(0, len(c), self.bs)]
@@ -166,8 +171,31 @@ class BucketBatchSampler(torch.utils.data.Sampler):
         rng.shuffle(out)
         return out
 
+    def epoch_order(self, rng):
+        return rng.permutation(len(self.widths))
+
     def __iter__(self):
         yield from self.batches()[self.skip_batches:]
 
     def __len__(self):
         return max(0, len(self.batches()) - self.skip_batches)
+
+
+class ReplayBucketSampler(BucketBatchSampler):
+    """Stage 2: every epoch = all adapt-source samples (each repeated `repeat[source]` times) plus a
+    fresh random draw of replay samples, `replay_ratio` x as many (paper: equal number of document
+    images, to avoid forgetting printed text). Deterministic per (seed, epoch), so resume works."""
+
+    def __init__(self, widths, sources, adapt, replay, replay_ratio=1.0, repeat=None, **kw):
+        super().__init__(widths, **kw)
+        src = np.asarray(sources).astype(str)
+        repeat = repeat or {}
+        self.adapt = np.concatenate([np.tile(np.flatnonzero(src == a), int(repeat.get(a, 1))) for a in adapt]
+                                    + [np.zeros(0, np.int64)])
+        self.replay = np.flatnonzero(np.isin(src, list(replay)))
+        self.n_replay = min(len(self.replay), int(round(replay_ratio * len(self.adapt))))
+        assert len(self.adapt), f"no training samples for adapt sources {adapt}"
+
+    def epoch_order(self, rng):
+        pick = rng.choice(self.replay, self.n_replay, replace=False) if self.n_replay else self.replay[:0]
+        return rng.permutation(np.concatenate([self.adapt, pick]))

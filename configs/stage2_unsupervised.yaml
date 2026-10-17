@@ -1,0 +1,10 @@
+# Stage 2 with UNSUPERVISED MAFS, as in the paper: router trained only through the recognition loss.
+base: stage2.yaml
+experiment: stage2_mafs_unsupervised
+paths:
+  out_dir: checkpoints/stage2_unsupervised
+  results_dir: results/stage2_mafs_unsupervised
+mafs:
+  n_sources: 5                        # [paper] default n = 5
+train:
+  route_loss_weight: 0.0
