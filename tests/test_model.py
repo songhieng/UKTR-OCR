@@ -132,3 +132,22 @@ def test_incremental_greedy_matches_naive():
     for f, n in zip(fast, seq[:, 1:].tolist()):
         k = n.index(TOK.eos_id) + 1 if TOK.eos_id in n else len(n)
         assert f[:k] == n[:k]
+
+
+def test_pad_margins_keeps_text_and_widens_line(tmp_path):
+    import pandas as pd
+    from PIL import Image
+    from src.datasets.ocr_dataset import LineDataset, _pad_margins
+    a = np.full((32, 100), 200, np.uint8)
+    a[8:24, 10:90] = 0                                  # "ink" on grey paper
+    out = np.asarray(_pad_margins(Image.fromarray(a)))
+    assert out.shape[0] == 32 and out.shape[1] >= 100 + 16
+    assert (out[:, 0] == 200).all() and (out[:, -1] == 200).all()
+    assert (out == 0).sum() == (a == 0).sum()           # text pasted intact
+    Image.fromarray(a).save(tmp_path / "x.png")
+    df = pd.DataFrame({"image_path": ["x.png"], "transcription": ["ក"], "width": [100], "height": [32],
+                       "source_dataset": ["s"]})
+    ds = LineDataset(df, tmp_path, TOK, augment=True)
+    ds.aug = [(1.0, _pad_margins)]
+    x, w, *_ = ds[0]
+    assert x.shape[-1] == w > 100

@@ -56,12 +56,26 @@ def _downup(im):
     return im.resize((max(1, im.width // 2), max(1, im.height // 2))).resize(im.size)
 
 
+def _pad_margins(im):
+    """Blank paper left/right of the text, as loose real crops have: teaches the decoder to emit EOS
+    over empty space instead of hallucinating (Stage-1 crops are tight). Fill = median edge colour."""
+    a = np.asarray(im)
+    edge = np.concatenate([a[:, :2], a[:, -2:]], axis=1).reshape(-1, *a.shape[2:])
+    fill = np.median(edge, axis=0).astype(int)
+    fill = int(fill) if fill.ndim == 0 else tuple(fill.tolist())
+    left, right = int(random.uniform(0, 0.5) * im.height), int(random.uniform(0.5, 4.0) * im.height)
+    out = Image.new(im.mode, (im.width + left + right, im.height), fill)
+    out.paste(im, (left, 0))
+    return out
+
+
 class LineDataset(Dataset):
     def __init__(self, df: pd.DataFrame, data_root, tokenizer: KCCTokenizer, img_height=32,
                  min_width=16, max_width=1600, in_channels=1, augment=False, max_label_len=254,
                  feat_stride=4, filter_infeasible=True, modalities=None):
         self.root = Path(data_root)
         self.tok, self.h, self.c, self.augment = tokenizer, img_height, in_channels, augment
+        self.max_width = max_width
         tw = target_width(df.width.values, df.height.values, img_height, min_width, max_width)
         ids = [np.asarray(tokenizer.encode(t, normalized=True), dtype=np.int32) for t in df.transcription]
         frames = -(-tw // feat_stride)
@@ -94,19 +108,22 @@ class LineDataset(Dataset):
     @staticmethod
     def _build_aug():
         # Paper does not specify augmentation; light, text-preserving perturbations (assumption).
-        return [(0.3, _affine), (0.4, T.ColorJitter(brightness=0.35, contrast=0.35)), (0.15, _blur), (0.15, _downup)]
+        return [(0.3, _affine), (0.4, T.ColorJitter(brightness=0.35, contrast=0.35)), (0.15, _blur), (0.15, _downup),
+                (0.3, _pad_margins)]
 
     def load_image(self, path: Path, width: int) -> torch.Tensor:
         im = Image.open(path).convert("L" if self.c == 1 else "RGB")
         if self.aug:
+            w0 = im.width
             for p, f in self.aug:
                 if random.random() < p:
                     im = f(im)
+            width = min(self.max_width, round(width * im.width / w0))   # margins widen the line
         return to_tensor(im, width, self.h)
 
     def __getitem__(self, i):
         x = self.load_image(self.root / self.paths[i].decode(), self.widths[i])
-        return x, int(self.widths[i]), self.label(i), i, int(self.modality_ids[i])
+        return x, int(x.shape[-1]), self.label(i), i, int(self.modality_ids[i])
 
 
 class Collate:
