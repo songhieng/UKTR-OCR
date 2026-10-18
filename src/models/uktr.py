@@ -163,15 +163,21 @@ class UKTRBase(nn.Module):
         out = {}
         if "route_logits" in aux:
             out["route_probs"] = aux["route_logits"].float().softmax(-1).tolist()
+        best = self.ctc_logits(U1d).argmax(-1)
         if "ctc" in decoders:
-            best = self.ctc_logits(U1d).argmax(-1)
             out["ctc"] = [best[b, :feat_w[b]].tolist() for b in range(best.shape[0])]
         if "tr" in decoders:
-            out["tr"] = self.greedy_decode(H, col_mask, bos_id, eos_id, max_len or self.cfg["max_dec_len"])
+            # cap each TR output at 2x its CTC read + 10 tokens: the decoder occasionally misses EOS and
+            # runs to max_len, and one such line can double the CER of a small val set (blank id = 0)
+            new_tok = torch.ones_like(best, dtype=torch.bool)
+            new_tok[:, 1:] = best[:, 1:] != best[:, :-1]
+            valid = torch.arange(best.shape[1], device=best.device)[None] < feat_w[:, None]
+            cap = 2 * ((best != 0) & new_tok & valid).sum(1) + 10
+            out["tr"] = self.greedy_decode(H, col_mask, bos_id, eos_id, max_len or self.cfg["max_dec_len"], cap)
         return out
 
     @torch.no_grad()
-    def greedy_decode(self, H, col_mask, bos_id, eos_id, max_len):
+    def greedy_decode(self, H, col_mask, bos_id, eos_id, max_len, cap=None):
         """Incremental greedy decoding with cached K/V, using the nn.TransformerDecoderLayer weights.
 
         Equivalent to re-running decode_logits on the growing prefix (eval mode), but memory K/V are
@@ -209,6 +215,8 @@ class UKTRBase(nn.Module):
             seq.append(nxt)
             tok = nxt
             done |= nxt == eos_id
+            if cap is not None:
+                done |= cap <= t + 1                               # per-sample length limit
             if done.all():
                 break
         return torch.stack(seq, 1).tolist() if seq else [[] for _ in range(B)]

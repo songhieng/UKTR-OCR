@@ -151,3 +151,14 @@ def test_pad_margins_keeps_text_and_widens_line(tmp_path):
     ds.aug = [(1.0, _pad_margins)]
     x, w, *_ = ds[0]
     assert x.shape[-1] == w > 100
+
+
+def test_greedy_decode_respects_per_sample_cap():
+    torch.manual_seed(0)
+    m = UKTRBase(SMALL).eval()
+    b = batch()
+    with torch.no_grad():
+        G, G1d, cm, _ = m.encode(b["images"], b["widths"])
+        out = m.greedy_decode(G, cm, TOK.bos_id, TOK.eos_id, 32, cap=torch.tensor([2, 5, 32]))
+    for seq, c in zip(out, [2, 5]):
+        assert all(t == TOK.eos_id for t in seq[c:])
