@@ -40,7 +40,7 @@ print("vocab from checkpoint -> data/tokenizer/kcc_vocab.json")
 EOF
 
 # synthetic handwriting (--all: the preset's exclude list drops the decorative faces)
-"$PY" scripts/fetch_fonts.py --out data/fonts --all
+"$PY" scripts/fetch_fonts.py --out data/fonts --all || echo "some fonts failed to download - continuing with the rest"
 if [ ! -f data/raw/khmer_synth_hw/labels.csv ]; then
   "$PY" scripts/generate_handwriting.py --num-texts "${NUM_TEXTS:-100000}" --workers "$W"
 fi
