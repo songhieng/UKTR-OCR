@@ -10,7 +10,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 CKPT=checkpoints/uktr_base_stage1_best.pt
 CONFIG=${CONFIG:-configs/stage2.yaml}
-W=${WORKERS:-$(nproc)}
+# vast.ai rents a share of a big host: nproc shows all host cores (e.g. 256) but the cgroup quota is
+# ~25. Use the quota, and cap torch/OpenMP threads, or they busy-wait the quota away (GPU at ~20%).
+cpus() { read -r q p < /sys/fs/cgroup/cpu.max 2>/dev/null && [ "$q" != max ] && echo $(( q / p )) || nproc; }
+W=${WORKERS:-$(cpus)}
+export OMP_NUM_THREADS=${OMP_NUM_THREADS:-2} MKL_NUM_THREADS=${MKL_NUM_THREADS:-2}
 [ -f "$CKPT" ] || { echo "missing $CKPT - upload the Stage-1 checkpoint first"; exit 1; }
 # the Python that has the GPU torch: images differ (python, python3, /venv/main, /opt/conda); PYTHON=... overrides
 PY=${PYTHON:-}
@@ -57,6 +61,6 @@ fi
 
 # training runs inside tmux so it survives SSH disconnects; TensorBoard on port 6006
 NAME=$(basename "$CONFIG" .yaml)
-tmux new-session -d -s "$NAME" "$PY scripts/train.py --config $CONFIG 2>&1 | tee -a results/train_$NAME.log"
+tmux new-session -d -s "$NAME" "OMP_NUM_THREADS=$OMP_NUM_THREADS MKL_NUM_THREADS=$MKL_NUM_THREADS $PY scripts/train.py --config $CONFIG --set data.num_workers=$(( W > 6 ? W - 4 : 2 )) 2>&1 | tee -a results/train_$NAME.log"
 tmux has-session -t tb 2>/dev/null || tmux new-session -d -s tb "$PY -m tensorboard.main --logdir results --host 0.0.0.0 --port 6006"
 echo "training started: tmux attach -t $NAME   |   TensorBoard: http://<host>:6006"
