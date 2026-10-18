@@ -12,30 +12,36 @@ One config switch selects each variant you want to compare:
 
 ## Run
 
+On a fresh GPU box, `scripts/vast_stage2.sh` does all of it (upload the Stage-1 checkpoint to
+`checkpoints/uktr_base_stage1_best.pt` first). By hand:
+
 ```bash
-# data (see docs/SYNTHETIC_HANDWRITING.md for the synthetic part)
+# data (see docs/SYNTHETIC_HANDWRITING.md for the synthetic part); needs the Stage-1 data + manifest
+python scripts/fetch_fonts.py --out data/fonts --all
 python scripts/generate_handwriting.py --num-texts 100000 --workers 16
-#   put your real lines in data/raw/real_hw/{labels.csv, images/} (or edit configs/stage2_data.yaml)
+python scripts/download_data.py  --config configs/stage2_data.yaml --datasets real_hw
 python scripts/prepare_data.py   --config configs/stage2_data.yaml
 python scripts/build_manifest.py --config configs/stage2_data.yaml
 python scripts/build_vocab.py    --config configs/stage2_data.yaml --existing data/tokenizer/kcc_vocab.json
 
-# train (same --set overrides as Stage 1 for a 16 GB GPU)
-python scripts/preflight.py --config configs/stage2.yaml --set train.batch_size=16
-python scripts/train.py     --config configs/stage2.yaml --set train.batch_size=16 train.grad_accum=2
+# train: 24 GB (RTX 4090) runs the default batch 32 as is
+python scripts/preflight.py --config configs/stage2.yaml
+python scripts/train.py     --config configs/stage2.yaml
+#   16 GB: --set train.batch_size=16 train.grad_accum=2 (on both commands)
 python scripts/evaluate.py  --checkpoint checkpoints/stage2_supervised/uktr_stage2_best.pt --splits val test
 ```
 
-No real handwriting yet? Remove `real_hw` from `adapt_sources` / `val_sources` in `configs/stage2.yaml`
-and set `best_metric: khmer_synth_hw/tr_cer` (and remember that number flatters the model).
+## Real handwriting
 
-## Real handwriting label file
+`real_hw` is `SoyVitou/khmer-handwritten-dataset-4.2k` (MIT): 3,549 train / 346 val / 307 test line
+crops with official splits; 99.3–99.7% of its clusters are in the Stage-1 vocabulary. It has no writer
+ids, so validation writers may also appear in training. `repeat: {real_hw: 5}` in `configs/stage2.yaml`
+makes the real lines ~16% of the handwriting the model sees per epoch.
 
-`configs/stage2_data.yaml` → `real_hw` reads `data/raw/real_hw/labels.csv` with columns
-`image_path` (relative to `images_root`), `text`, `writer_id`. Also accepted: tsv / headerless txt
-(`header: false` → columns 0, 1), jsonl, local parquet with embedded images (`type: parquet`), an
-existing split column (`split_column`, `split_map`). Without `group_column` the split falls back to
-text hashing; with it (recommended) the split is writer-independent, so validation measures new writers.
+To use your own lines instead, make `real_hw` a `type: labels` source: a csv with `image_path`
+(relative to `images_root`), `text`, `writer_id`. Also accepted: tsv / headerless txt
+(`header: false` → columns 0, 1), jsonl, an existing split column (`split_column`, `split_map`).
+With `group_column` the split is writer-independent, so validation measures new writers.
 
 ## What happens in training
 

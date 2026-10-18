@@ -16,7 +16,7 @@ data:
   adapt_sources: [real_hw, khmer_synth_hw]            # every sample, every epoch
   replay_sources: [khmer_printed, khmer_synthetic, hiertext]   # resampled each epoch
   replay_ratio: 1.0                   # [paper] equal number of document images mixed in
-  repeat: {real_hw: 1}                # oversample a small real set, e.g. {real_hw: 3}
+  repeat: {real_hw: 5}                # 3.5k real train lines vs ~96k synthetic: 5x makes real ~16% of handwriting
   val_sources: [real_hw, khmer_synth_hw, khmer_printed, hiertext]
   max_val_per_source: 2000
 
