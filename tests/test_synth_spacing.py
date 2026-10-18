@@ -18,7 +18,8 @@ def test_no_overprint_between_clusters():
 
     off = ["cluster_level", "stroke_level", "point_level", "global_transform", "baseline"]
     cfg = merge_overrides(PipelineConfig.load(ROOT / "configs/handwriting_synth.json"),
-                          [f"deformation.{k}=false" for k in off] + ["writer.connect_probability=[0,0]"])
+                          [f"deformation.{k}=false" for k in off]
+                          + ["writer.connect_probability=[0,0]", "layout.min_cluster_gap_em=0.02"])
     cfg.fonts.paths = [str(ROOT / p) for p in cfg.fonts.paths]
     cfg.dataset.use_disk_cache = False
     gen = SampleGenerator(cfg)
@@ -31,3 +32,23 @@ def test_no_overprint_between_clusters():
         ks = sorted(masks)
         for a, b in zip(ks, ks[1:]):
             assert int((masks[a] & masks[b]).sum()) == 0, (text, a, b)
+
+
+def test_fast_writers_do_not_shake():
+    from src.khmer_synth.config import WriterSamplingConfig
+    from src.khmer_synth.writer.style import sample_writer
+
+    ws = [sample_writer(i, WriterSamplingConfig(archetype_weights={"careful": 1, "fast": 1})) for i in range(300)]
+    slow = np.mean([w.tremor for w in ws if w.fluency < 0.3])
+    fast = np.mean([w.tremor for w in ws if w.fluency > 0.6])
+    assert fast < slow, (slow, fast)
+
+
+def test_partial_smoothing_keeps_stroke_end():
+    from src.khmer_synth.config import SmoothingConfig
+    from src.khmer_synth.strokes.smoothing import smooth_stroke
+
+    # zigzag: the spline overshoots every vertex, so it is much longer than the raw polyline
+    pts = np.stack([np.arange(30) * 10.0, 8.0 * (-1) ** np.arange(30)], 1)
+    out = smooth_stroke(pts, SmoothingConfig(savgol_window=0, corner_angle_deg=179), smoothness=0.5)
+    assert np.linalg.norm(out[-1] - pts[-1]) < 1.0, (out[-1], pts[-1])

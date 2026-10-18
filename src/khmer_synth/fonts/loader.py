@@ -16,6 +16,8 @@ lazily from the config (which *is* picklable).
 
 from __future__ import annotations
 
+import fnmatch
+import hashlib
 import threading
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -46,6 +48,19 @@ class LoadedFont:
     descender: float
     #: glyph id -> glyph name (fontTools order == HarfBuzz gid order for sfnt)
     glyph_order: list[str] = field(default_factory=list)
+    #: short content hash of the font file.  ``key`` is only the filename stem and
+    #: is therefore NOT unique: MEASURED, ``fonts/Battambang-Regular.ttf``
+    #: (md5 ba95e740…, 360 glyphs) and ``fonts/km/Battambang-Regular.ttf``
+    #: (md5 971de454…, 302 glyphs) are different files that collide on the stem,
+    #: and both produced ``cluster_skeleton`` key a8874b6c0d2a5d91.  Since
+    #: ``fonts/km/*`` are symlinks, repointing one was invisible to the cache and
+    #: stale skeletons were served forever.  This goes into both cache keys.
+    content_hash: str = ""
+
+    @property
+    def uid(self) -> str:
+        """Stem + content hash: unique per font *file*, unlike ``key``."""
+        return f"{self.key}@{self.content_hash}" if self.content_hash else self.key
 
     def glyph_name(self, gid: int) -> str:
         if 0 <= gid < len(self.glyph_order):
@@ -61,6 +76,34 @@ class LoadedFont:
 
 _FONT_CACHE: dict[tuple[str, int, tuple[tuple[str, float], ...]], LoadedFont] = {}
 _CACHE_LOCK = threading.Lock()
+_HASH_CACHE: dict[str, str] = {}
+
+
+def _content_hash(path: str | Path) -> str:
+    """Short, move-stable fingerprint of a font *file*.
+
+    Used to disambiguate two files that share a filename stem in the skeleton /
+    plan cache keys - see ``LoadedFont.content_hash`` for the proven collision.
+    A content hash rather than (path, size, mtime) so that repointing a symlink
+    under ``fonts/km`` invalidates the cache while merely moving the tree does
+    not.  Cached per process; ~245 files hash in well under a second.
+    """
+    p = str(Path(path))
+    with _CACHE_LOCK:
+        hit = _HASH_CACHE.get(p)
+    if hit is not None:
+        return hit
+    h = hashlib.blake2b(digest_size=8)
+    try:
+        with open(p, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+        out = h.hexdigest()
+    except OSError:  # pragma: no cover - unreadable file
+        out = ""
+    with _CACHE_LOCK:
+        _HASH_CACHE[p] = out
+    return out
 
 
 def load_font(
@@ -111,6 +154,7 @@ def load_font(
     font = LoadedFont(
         key=Path(path).stem,
         path=path,
+        content_hash=_content_hash(path),
         face_index=face_index,
         upem=int(upem),
         variations=variations,
@@ -147,6 +191,36 @@ def discover_font_files(paths: Sequence[str | Path]) -> list[Path]:
     return uniq
 
 
+_GLOB_CHARS = ("*", "?", "[")
+
+
+def font_is_excluded(path: Path, patterns: Sequence[str], mode: str = "exact") -> str | None:
+    """Return the ``exclude`` entry that bans ``path``, else ``None``.
+
+    See ``FontConfig.exclude_match`` for why the modes exist: the shipped
+    exclude lists name Google-style stems while the ``fonts/km`` symlinks carry
+    vendor filenames, so 26 decorative faces the config means to drop were being
+    sampled as handwriting.
+    """
+    stem = path.stem
+    # the stem plus every directory component, so "Moul" can also ban fonts/km/Moul/*
+    parts = [stem] + [p for p in path.parts[:-1]]
+    low = [p.casefold() for p in parts]
+    smart = mode == "smart"
+    for pat in patterns:
+        if not pat:
+            continue
+        if not smart and stem == pat:
+            return pat  # v1 semantics, kept exactly
+        pl = pat.casefold()
+        if any(c in pat for c in _GLOB_CHARS):
+            if any(fnmatch.fnmatch(p, pl) for p in low):
+                return pat
+        elif smart and any(pl in p for p in low):
+            return pat
+    return None
+
+
 class FontLibrary:
     """A weighted collection of Khmer-capable fonts."""
 
@@ -163,10 +237,12 @@ class FontLibrary:
                 f"no font files found under {self.cfg.paths!r} "
                 "(pass --fonts <dir> or run scripts/fetch_fonts.py)"
             )
+        mode = getattr(self.cfg, "exclude_match", "exact")
         for f in files:
             stem = f.stem
-            if stem in self.cfg.exclude:
-                self.rejected.append((stem, "excluded by config"))
+            banned = font_is_excluded(f, self.cfg.exclude, mode)
+            if banned is not None:
+                self.rejected.append((stem, f"excluded by config ({banned!r})"))
                 continue
             try:
                 font = load_font(f, self.cfg.variations.get(stem))
@@ -189,10 +265,33 @@ class FontLibrary:
         return [f.key for f in self.fonts]
 
     def get(self, key: str) -> LoadedFont:
+        """Look up by ``uid`` (unique) or, failing that, by ``key`` (first match).
+
+        Configs, ``preferred_fonts`` and sample metadata all speak stems, so the
+        stem lookup has to stay; it is the ``uid`` form that is unambiguous.
+        """
+        for f in self.fonts:
+            if f.uid == key:
+                return f
         for f in self.fonts:
             if f.key == key:
                 return f
         raise KeyError(f"font {key!r} not in library ({self.keys})")
+
+    def font_weight(self, font: LoadedFont) -> float:
+        """Sampling weight of one face (``uid`` first, then ``key``, then default).
+
+        WHY the default is configurable: MEASURED, with unlisted fonts pinned at
+        1.0 only 7.3% of `real_match_v2`'s sampling mass reached the 17 faces it
+        tunes, because ``fonts.paths: ["fonts"]`` also rglobs the 232 faces in
+        ``fonts/km``.  See ``FontConfig.default_weight``.
+        """
+        w = self.cfg.weights
+        if font.uid in w:
+            return float(w[font.uid])
+        if font.key in w:
+            return float(w[font.key])
+        return float(getattr(self.cfg, "default_weight", 1.0))
 
     def sample(self, rng: np.random.Generator, text: str | None = None) -> LoadedFont:
         """Pick a font, honouring configured weights and (optionally) coverage."""
@@ -201,8 +300,14 @@ class FontLibrary:
             covering = [f for f in self.fonts if f.covers(text)]
             if covering:
                 candidates = covering
-        weights = {f.key: float(self.cfg.weights.get(f.key, 1.0)) for f in candidates}
-        return self.get(choice_weighted(rng, weights))
+        # Weight by *index*, not by key: two files can share a stem, and keying a
+        # dict on the stem silently merged them and then handed back whichever
+        # one `get()` found first - which could be a face that does not cover the
+        # text at all, rendering .notdef boxes.
+        weights = {str(i): max(self.font_weight(f), 0.0) for i, f in enumerate(candidates)}
+        if sum(weights.values()) <= 0.0:  # every candidate weighted 0 -> uniform
+            weights = {k: 1.0 for k in weights}
+        return candidates[int(choice_weighted(rng, weights))]
 
     def __len__(self) -> int:
         return len(self.fonts)

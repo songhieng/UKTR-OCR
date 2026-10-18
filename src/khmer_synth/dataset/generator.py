@@ -22,11 +22,13 @@ from typing import Any
 import numpy as np
 
 from ..augmentation.degradation import degrade
+from ..augmentation.paper import apply_paper
 from ..config import PipelineConfig
 from ..fonts.loader import FontLibrary, LoadedFont
 from ..rendering.backgrounds import make_background
 from ..rendering.renderer import render_trajectory
 from ..skeleton.pipeline import cluster_skeleton
+from ..strokes.abbreviate import abbreviate_strokes
 from ..strokes.connect import connect_strokes
 from ..strokes.planner import Stroke, StrokePlan, plan_variants
 from ..strokes.smoothing import smooth_stroke
@@ -100,8 +102,11 @@ class SampleGenerator:
         """
         sig = tuple(sorted((int(g), round(float(dx), 1), round(float(dy), 1)) for g, dx, dy in placements))
         key_parts = (
-            "cluster_plans_v1",
-            font.key,
+            # v2: font identity includes the file's content hash - see the
+            # cluster_skeleton_v2 comment in skeleton/pipeline.py for the proven
+            # stem collision this fixes.
+            "cluster_plans_v2",
+            font.uid,
             tuple(sorted(font.variations.items())),
             sig,
             self.cfg.raster,
@@ -132,31 +137,9 @@ class SampleGenerator:
         rng: np.random.Generator,
         debug: dict[str, Any] | None = None,
     ) -> list[Stroke]:
-        """Place every cluster's planned strokes into line space (px).
-
-        Writer spacing scales whole advances and adds negative "tight" offsets,
-        which on its own lets neighbouring clusters overprint each other.  Each
-        cluster is therefore pushed right just far enough that, row by row (a
-        horizontal ink profile, like optical kerning), it keeps ``min_gap`` from
-        everything already written.  Shapes may still interlock (a tall vowel
-        over a short neighbour) and nearly touch, but never overprint.
-        """
+        """Place every cluster's planned strokes into line space (px)."""
         strokes: list[Stroke] = []
         upem = float(font.upem)
-        # ink width plus headroom for the deformations applied later (stroke-end
-        # overshoot, per-cluster shift/scale, bending), which would otherwise
-        # push ink back into the neighbour
-        min_gap = em_px * (
-            1.6 * style.stroke_width
-            + style.overshoot
-            + style.glyph_translation
-            + 0.4 * style.glyph_scale_var
-            + style.local_elasticity
-        )
-        bin_h = 0.04 * em_px
-        y_lo, n_bins = -1.8 * em_px, 70  # rows covering -1.8 .. +1.0 em around the baseline
-        prev_right = np.full(n_bins, -np.inf)
-        push = 0.0
         order = sorted(
             shaped.cluster_glyphs.keys(),
             key=lambda ci: min(shaped.glyphs[i].x for i in shaped.cluster_glyphs[ci]),
@@ -173,32 +156,22 @@ class SampleGenerator:
             skel, plans = self._cluster_plans(font, placements)
             if skel.is_empty or not plans:
                 continue
-            plan: StrokePlan = plans[int(rng.integers(0, len(plans)))]
+            # Which stroke order this writer uses for this letter is part of the
+            # hand, not per-occurrence noise: a writer who draws ក with one
+            # particular pen path draws it that way every time.  Keying the
+            # choice on (writer, cluster text) is what stops the same letter
+            # from being re-invented at every occurrence in the line.
+            key = shaped.clusters[ci].text if ci < len(shaped.clusters) else ""
+            if key:
+                prng = make_rng("plan", self.cfg.dataset.seed, style.writer_id, key, font.key)
+                plan: StrokePlan = plans[int(prng.integers(0, len(plans)))]
+            else:
+                plan = plans[int(rng.integers(0, len(plans)))]
             dx = origin / upem
-            placed = []
             for s in plan.strokes:
                 pts = np.asarray(s.points, dtype=np.float64).copy()
                 pts[:, 0] += dx
                 pts *= em_px
-                pts[:, 0] += push
-                placed.append((pts, s))
-            ink = np.vstack([_densify(p, bin_h * 0.5) for p, _ in placed])
-            rows = np.clip(((ink[:, 1] - y_lo) / bin_h).astype(int), 0, n_bins - 1)
-            left = np.full(n_bins, np.inf)
-            right = np.full(n_bins, -np.inf)
-            np.minimum.at(left, rows, ink[:, 0])
-            np.maximum.at(right, rows, ink[:, 0])
-            # one row of vertical clearance as well
-            near = np.maximum(prev_right, np.maximum(np.roll(prev_right, 1), np.roll(prev_right, -1)))
-            ok = np.isfinite(near) & np.isfinite(left)
-            shift = float(np.max(near[ok] + min_gap - left[ok])) if ok.any() else 0.0
-            if shift > 0:
-                push += shift
-                for pts, _ in placed:
-                    pts[:, 0] += shift
-                right = right + shift
-            prev_right = np.maximum(prev_right, right)
-            for pts, s in placed:
                 strokes.append(Stroke(pts, list(s.edges), s.component, cluster=int(ci)))
             if debug is not None:
                 debug.setdefault("clusters", []).append(
@@ -234,14 +207,40 @@ class SampleGenerator:
             raise ValueError("text is empty after normalisation")
 
         style = sample_writer(
-            writer_id, cfg.writer, seed=cfg.dataset.seed, font_keys=self.fonts.keys, font_weights=cfg.fonts.weights
+            writer_id,
+            cfg.writer,
+            seed=cfg.dataset.seed,
+            font_keys=self.fonts.keys,
+            font_weights=cfg.fonts.weights,
+            font_default_weight=getattr(cfg.fonts, "default_weight", 1.0),
         ).jittered(rng, amount=0.07)
 
         font = self.fonts.get(font_key) if font_key else self.pick_font(style, rng, norm)
 
         # ---- shaping with writer spacing ---- #
         n_clusters = max(len(segment_graphemes(norm)), 1)
-        extra = _spacing_offsets(style, rng, n_clusters, font.upem)
+        advances = None
+        if cfg.writer.spacing_tight_max_frac > 0:
+            # one plain shaping pass to learn each cluster's own width (shaping
+            # order, the same order ``shape_with_spacing`` indexes extras by)
+            plain = self.shaper.shape(font, norm)
+            order: list[int] = []
+            for g in plain.glyphs:
+                if g.cluster_index not in order:
+                    order.append(g.cluster_index)
+            advances = np.array(
+                [sum(plain.glyphs[i].x_advance for i in plain.cluster_glyphs[ci]) for ci in order],
+                dtype=np.float64,
+            )
+            n_clusters = max(len(order), 1)
+        extra = _spacing_offsets(
+            style,
+            rng,
+            n_clusters,
+            font.upem,
+            cluster_advances=advances,
+            tight_max_frac=cfg.writer.spacing_tight_max_frac,
+        )
         shaped = self.shaper.shape_with_spacing(
             font,
             norm,
@@ -252,7 +251,14 @@ class SampleGenerator:
 
         # ---- canvas + em size ---- #
         W, H = cfg.layout.canvas_width, cfg.layout.canvas_height
-        pad = cfg.layout.padding_px
+        # Randomised framing when configured: real crops are cut flush to the ink
+        # (measured margins 0.016-0.042 of height) where a fixed 10 px margin on a
+        # 96 px canvas gives 0.107.  See LayoutConfig.padding_px_range.
+        if cfg.layout.padding_px_range is not None:
+            lo, hi = cfg.layout.padding_px_range
+            pad = int(round(uniform(rng, (float(lo), float(hi)))))
+        else:
+            pad = cfg.layout.padding_px
         em_px = uniform(rng, cfg.layout.em_fraction) * H
         advance_em = max(shaped.advance / float(font.upem), 1e-6)
         usable_w = max(W - 2 * pad, 16)
@@ -266,8 +272,28 @@ class SampleGenerator:
         strokes = self._build_line(font, shaped, em_px, style, rng, debug)
         if not strokes:
             raise ValueError(f"no strokes produced for text {norm!r} with font {font.key}")
+        if cfg.layout.min_cluster_gap_em is not None:
+            strokes = _separate_clusters(strokes, em_px, cfg.layout.min_cluster_gap_em)
         if want_debug:
             debug["raw_strokes"] = [Stroke(s.points.copy(), [], s.component, s.cluster) for s in strokes]
+
+        # ---- letterform abbreviation (before connection: a reduced letter has
+        #      shorter gaps, so it also carries over more readily) ---- #
+        cluster_keys = {i: c.text for i, c in enumerate(shaped.clusters) if getattr(c, "text", "")}
+        strokes = abbreviate_strokes(
+            strokes,
+            style,
+            cfg.abbreviation,
+            em_px,
+            cluster_keys=cluster_keys,
+            allograph_seed=cfg.dataset.seed,
+        )
+        if not strokes:
+            raise ValueError(f"abbreviation removed every stroke for {norm!r}")
+        if want_debug:
+            debug["abbreviated_strokes"] = [
+                Stroke(s.points.copy(), [], s.component, s.cluster) for s in strokes
+            ]
 
         # ---- stroke connection (before smoothing, so the carry-over is
         #      smoothed into one continuous curve with the strokes it joins) ---- #
@@ -279,6 +305,8 @@ class SampleGenerator:
             probability=style.connect_probability,
             max_gap_em=style.connect_max_gap,
             spacing_px=cfg.smoothing.point_spacing_px,
+            max_chain=cfg.writer.connect_max_chain,
+            max_rise_em=cfg.writer.connect_max_rise_em,
         )
         if want_debug:
             debug["connected_strokes"] = [
@@ -319,7 +347,15 @@ class SampleGenerator:
             ]
 
         # ---- deformation ---- #
-        strokes = deform_strokes(strokes, style, cfg.deformation, rng, em_px)
+        strokes = deform_strokes(
+            strokes,
+            style,
+            cfg.deformation,
+            rng,
+            em_px,
+            cluster_keys=cluster_keys,
+            allograph_seed=cfg.dataset.seed,
+        )
         if want_debug:
             debug["deformed_strokes"] = [
                 Stroke(s.points.copy(), [], s.component, s.cluster, list(s.ligature_spans))
@@ -328,7 +364,7 @@ class SampleGenerator:
 
         # ---- fit into the canvas ---- #
         if cfg.layout.auto_width:
-            # collision spacing, slant and overshoot make the ink wider than the
+            # cluster separation, slant and overshoot make the ink wider than the
             # shaped advance; grow the canvas instead of shrinking the writing
             xs = np.concatenate([s.points[:, 0] for s in strokes])
             need = int(np.ceil(float(xs.max() - xs.min()) + 2 * pad))
@@ -386,11 +422,30 @@ class SampleGenerator:
             paper = float(np.median(grey))
             fg_ratio = float((grey < paper - 0.12).mean())
             do_degrade = cfg.degradation.enabled if degrade_image is None else degrade_image
-            if do_degrade:
-                degraded, dinfo = degrade(clean, cfg.degradation, rng)
-                traj.meta["degradation"] = dinfo["ops"]
-                if want_debug:
-                    debug["degradation_info"] = dinfo
+            # The paper stage (Augraphy) is the ink/sheet half of the chain and
+            # runs *before* the capture half - see config.PaperConfig.  It is off
+            # unless a config turns it on, so nothing above changes for the
+            # pre-existing presets (in particular it draws no random numbers).
+            do_paper = cfg.paper.enabled and degrade_image is not False
+            if do_paper and cfg.paper.stage == "replace_degradation":
+                do_degrade = False
+            if do_degrade or do_paper:
+                work = clean
+                pinfo: dict[str, Any] | None = None
+                if do_paper and cfg.paper.stage != "after_degradation":
+                    work, pinfo = apply_paper(work, cfg.paper, rng)
+                if do_degrade:
+                    work, dinfo = degrade(work, cfg.degradation, rng)
+                    traj.meta["degradation"] = dinfo["ops"]
+                    if want_debug:
+                        debug["degradation_info"] = dinfo
+                if do_paper and cfg.paper.stage == "after_degradation":
+                    work, pinfo = apply_paper(work, cfg.paper, rng)
+                if pinfo is not None:
+                    traj.meta["paper"] = pinfo["ops"]
+                    if want_debug:
+                        debug["paper_info"] = pinfo
+                degraded = work
 
         meta = SampleMetadata(
             sample_id=sample_id,
@@ -435,20 +490,55 @@ class SampleGenerator:
 # --------------------------------------------------------------------------- #
 
 
-def _densify(pts: np.ndarray, step: float) -> np.ndarray:
-    """Linearly resample a polyline so consecutive points are <= ``step`` apart."""
-    if len(pts) < 2:
-        return pts
-    seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
-    s_cum = np.concatenate([[0.0], np.cumsum(seg)])
-    u = np.linspace(0.0, s_cum[-1], max(int(s_cum[-1] / max(step, 1e-6)) + 2, 2))
-    return np.stack([np.interp(u, s_cum, pts[:, 0]), np.interp(u, s_cum, pts[:, 1])], axis=1)
+def _separate_clusters(strokes: list[Stroke], em_px: float, min_gap_em: float) -> list[Stroke]:
+    """Guarantee a minimum horizontal gap between consecutive grapheme clusters.
+
+    Clusters are taken in left-to-right order of their ink.  Whenever a cluster's
+    ink starts before ``(right edge of everything before it) + min_gap``, that
+    cluster and every later one are translated right by the deficit, so shapes
+    and the gaps *after* it are untouched.  A negative ``min_gap_em`` allows a
+    small overlap (real hands do touch neighbouring letters), but never a pile-up.
+    """
+    if not strokes:
+        return strokes
+    gap = float(min_gap_em) * em_px
+    by_cluster: dict[int, list[Stroke]] = {}
+    for s in strokes:
+        if len(s.points):
+            by_cluster.setdefault(s.cluster, []).append(s)
+    order = sorted(by_cluster, key=lambda c: min(float(s.points[:, 0].min()) for s in by_cluster[c]))
+    edge: float | None = None
+    shift = 0.0
+    for c in order:
+        group = by_cluster[c]
+        x0 = min(float(s.points[:, 0].min()) for s in group) + shift
+        x1 = max(float(s.points[:, 0].max()) for s in group) + shift
+        if edge is not None and x0 < edge + gap:
+            d = edge + gap - x0
+            shift += d
+            x0 += d
+            x1 += d
+        if shift != 0.0:
+            for s in group:
+                s.points = s.points + np.array([shift, 0.0])
+        edge = x1 if edge is None else max(edge, x1)
+    return strokes
 
 
 def _spacing_offsets(
-    style: WriterStyle, rng: np.random.Generator, n_clusters: int, upem: int
+    style: WriterStyle,
+    rng: np.random.Generator,
+    n_clusters: int,
+    upem: int,
+    cluster_advances: np.ndarray | None = None,
+    tight_max_frac: float = 0.0,
 ) -> np.ndarray:
     """Extra advance (font units) to insert after each grapheme cluster.
+
+    ``cluster_advances`` (font units, one per cluster in shaping order) together
+    with ``tight_max_frac`` bound a collapse to a fraction of the preceding
+    cluster's own width, so narrow clusters (digits, Latin) cannot be driven on
+    top of each other.  Both default to off, which is the v1 behaviour.
 
     Three components, because typeset-looking spacing was the single biggest
     "this is synthetic" tell:
@@ -474,6 +564,10 @@ def _spacing_offsets(
         offsets[tight] -= rng.uniform(0.10, 0.26, size=int(tight.sum())) * upem
 
     # never let a gap collapse so far that clusters become unreadable
+    if cluster_advances is not None and tight_max_frac > 0:
+        adv = np.asarray(cluster_advances, dtype=np.float64)
+        if len(adv) == n:
+            offsets = np.maximum(offsets, -tight_max_frac * np.maximum(adv, 0.0))
     return np.clip(offsets, -0.30 * upem, 0.60 * upem)
 
 

@@ -169,7 +169,12 @@ def build_dataset(
     save_writers(
         out / "writers.json",
         writer_table(
-            ds.num_writers, cfg.writer, seed=ds.seed, font_keys=fonts_probe.fonts.keys, font_weights=cfg.fonts.weights
+            ds.num_writers,
+            cfg.writer,
+            seed=ds.seed,
+            font_keys=fonts_probe.fonts.keys,
+            font_weights=cfg.fonts.weights,
+            font_default_weight=getattr(cfg.fonts, "default_weight", 1.0),
         ),
     )
     del fonts_probe

@@ -13,8 +13,8 @@ python scripts/build_manifest.py --config configs/stage2_data.yaml
 python scripts/build_vocab.py    --config configs/stage2_data.yaml --existing data/tokenizer/kcc_vocab.json
 ```
 
-Run it on the CPU box of your choice; it never uses the GPU. Measured locally: ~26 images/s with
-8 workers once the skeleton cache is warm (100k images ≈ 1 h), ~21 KB per JPEG (100k ≈ 2 GB).
+Run it on the CPU box of your choice; it never uses the GPU. Measured locally: ~0.5 s per image on
+one process (full-quality skeleton raster), so 100k images ≈ 1 h on 16 workers.
 
 ## How an image is made
 
@@ -25,23 +25,22 @@ on paper backgrounds (white, off-white, textured, ruled, grid) → camera/scan d
 shadow, perspective, rotation, noise, JPEG, ink fade, stains). Every sample is reproducible from
 `(text, writer_id, seed, config)`.
 
-## What `configs/handwriting_synth.json` changes vs the generator's `ocr_paddle` preset, and why
+## The preset: `configs/handwriting_synth.json`
+
+It is the generator's `real_match_v3` preset (tuned against real Khmer handwriting crops: tight
+framing, dark navy/black ballpoint ink, ruled and grid paper, cluster separation, adult writer mix,
+decorative fonts excluded by substring) with these UKTR changes:
 
 | Setting | Change | Reason |
 |---|---|---|
-| `fonts.exclude` | all 16 display faces (Moul, Bokor, Metal, Koulen, Bayon, Muol variants, …) | the skeleton traces their ornament, not the letter; no hand writes like that |
-| `fonts.weights` | Fasthand / Freehand ×12 (writers now honour the weights) | real handwriting letter shapes; ≈ half of all writers adopt one |
-| `smoothing.savgol_*` | window 15 (per 64 px em), poly 3, mix 1 (was off) | removes the font skeleton's raster kinks; the interpolating spline alone kept them as wavy, "trembling" lines |
-| `writer.pen_models` | pencil 0.15 → 0.07 (ballpoint 0.48) | pencil was the main source of faint, barely legible lines |
-| `layout.canvas_width` | 64 (with `auto_width`) | canvas = text width + padding → tight line crops instead of short words floating in empty canvas |
-| `writer.fluency` | 0.5 – 0.94 (was 0.05 – 1.0) | fast adult hands; no slow "child-like" writers, no illegible scrawl |
-| `writer.stroke_width` / `character_spacing` / `connect_probability` / `corner_rounding` | 0.028–0.058 / 0.8–1.08 / 0.2–0.9 / 0.2–1.0 | thinner pens, tighter letters, more joins, rounder corners (fast writing) |
-| `render.width_pressure_bias/gain` | 0.3 / 1.15 (was 0.6 / 0.8) | pressure can thin a stroke to a tapered tail |
-| `degradation` | shadow 0.3→0.08 (strength ≤ 0.3), ink fade 0.3→0.15 (≤ 0.4), uneven light 0.55→0.3 (≤ 0.3) | stacked heavy vignettes + fading erased whole syllables (label noise) |
-| `dataset` | degraded JPEG only, no trajectories | Stage 2 needs images; halves disk and time |
+| `fonts.paths` | `data/fonts` | where `scripts/fetch_fonts.py` puts them |
+| `fonts.weights` / `exclude` | + `KhmerOS_fasthand` 3.0, `KhmerOS_freehand` 2.5; exclude `muol` | our font set ships the KhmerOS handwriting faces; KhmerOS spells Moul "muol" |
+| `writer.local_jitter`, `local_elasticity`, `glyph_rotation`, `glyph_translation`, `glyph_scale_var`, `slant_variation`, `overshoot` | back to the earlier preset's wider ranges | with v3's ranges the Stage-1 model read the synthetic lines at 10% CER vs 28% on real handwriting with the same texts (it looked like neat print); these ranges give 18% and similar exact-line accuracy (37% vs 41%), image realism unchanged |
+| `dataset` | `data/raw/khmer_synth_hw`, degraded JPEG only, 1 style per text | Stage 2 needs images; halves disk and time |
 
-Code changes for fast, confident strokes (tapered exits, no tremor on fast hands, speed-dependent
-width) and the spacing fix that stops letters overprinting are listed in `src/khmer_synth/VENDORED.md`.
+Measured on 200 texts from the real `SoyVitou/khmer-handwritten-dataset-4.2k` **val** split (its
+test split stays untouched for evaluation). Code changes kept on top of upstream are listed in
+`src/khmer_synth/VENDORED.md`.
 
 ## Text
 

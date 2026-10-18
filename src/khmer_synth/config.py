@@ -74,6 +74,18 @@ class FontConfig:
     paths: list[str] = field(default_factory=lambda: ["fonts"])
     #: optional per-font sampling weight, keyed by font stem (e.g. "Battambang-Regular")
     weights: dict[str, float] = field(default_factory=dict)
+    #: Weight given to a font that is *not* named in ``weights``.
+    #:
+    #: WHY this exists.  MEASURED on the live tree: ``fonts.paths: ["fonts"]`` is
+    #: rglob-ed, so it now also picks up the 232 faces under ``fonts/km``.  With
+    #: unlisted fonts hard-coded to 1.0, only 17.9 of the pool's 243.9 total
+    #: weight - **7.3%** - landed on the 17 faces `real_match_v2.json` tunes, and
+    #: `Fasthand-Regular` drew 1.23% of samples where the config intends ~17%.
+    #: Every tuning decision in a ``weights`` block was effectively inert.
+    #: The default stays 1.0 so existing presets sample exactly as before; a
+    #: preset that means its weights to be authoritative sets this lower (e.g.
+    #: 0.05) or to 0.0 to restrict sampling to the listed faces alone.
+    default_weight: float = 1.0
     #: Fonts to skip, by stem.  The defaults are decorative/display Khmer faces
     #: whose outlines are hollow, doubled or heavily ornamented; thinning them
     #: produces centrelines that trace the *decoration* rather than the letter
@@ -94,6 +106,26 @@ class FontConfig:
             "OdorMeanChey-Regular",
         ]
     )
+    #: How entries in ``exclude`` are matched against a font file.
+    #:
+    #: ``"exact"``   (default, = v1) the bare filename stem must match exactly,
+    #:               except that an entry containing a glob metacharacter
+    #:               (``* ? [``) is fnmatch-ed case-insensitively against the stem
+    #:               and against every path component.  No shipped preset used a
+    #:               glob before, so this leaves their font pools byte-identical.
+    #: ``"smart"``   case-insensitive *substring* match against the stem and every
+    #:               path component, so ``"Moul"`` also catches
+    #:               ``KhmerOSMoulLight`` and ``fonts/km/Moul/…``.
+    #:
+    #: WHY: MEASURED - the exclude list names Google-style stems
+    #: (``Moul-Regular``, ``Koulen-Regular``, …) but the ``fonts/km`` symlinks
+    #: carry vendor filenames, so 26 decorative faces the config explicitly
+    #: intends to drop (Moul, Koulen, Bokor, Dangrek, Bayon, Taprom, Metal-Chrieng
+    #: and 19 more) survived exclusion and were sampled as handwriting -
+    #: ``Kh-Metal-Chrieng`` was the single most-sampled font in a 400-sample run.
+    #: Their skeletons trace the *decoration* rather than the letter (see the
+    #: ``exclude`` docstring above), which feeds the substitution error mass.
+    exclude_match: str = "exact"
     #: variable-font axis locations, keyed by font stem, e.g. {"Nokora-VF": {"wght": 400}}
     variations: dict[str, dict[str, float]] = field(default_factory=dict)
     #: require the font to cover this probe string, else it is dropped
@@ -246,6 +278,19 @@ class WriterSamplingConfig:
     spacing_drift: Range = (0.0, 0.085)
     #: fraction of gaps that collapse into a near-touch / overlap
     spacing_tight_rate: Range = (0.0, 0.34)
+    #: v2: relative weight of each writer archetype (careful / neat / average /
+    #: fast / scrawl / shaky).  The v1 mix is the default.  An adult-hand preset
+    #: drops "shaky" and most of "careful": tremor and slow, separately placed
+    #: letters are what read as a child's hand.
+    archetype_weights: dict[str, float] = field(
+        default_factory=lambda: {
+            "careful": 0.10, "neat": 0.16, "average": 0.28, "fast": 0.26, "scrawl": 0.12, "shaky": 0.08
+        }
+    )
+    #: v2: cap a collapsed gap at this fraction of the *preceding cluster's own
+    #: advance* (0 = v1 behaviour, fixed 0.30 em cap).  A 0.26 em collapse is a
+    #: touch after a wide consonant but piles narrow digits on top of each other.
+    spacing_tight_max_frac: float = 0.0
 
     baseline_amplitude: Range = (0.0, 0.052)   # in em
     baseline_frequency: Range = (0.15, 1.3)    # cycles per em of advance
@@ -267,21 +312,52 @@ class WriterSamplingConfig:
     overshoot: Range = (0.0, 0.055)            # em, stroke start/end extension
     slant_variation: Range = (0.0, 0.085)      # per-cluster slant sigma
 
+    #: how far the writer abbreviates the printed letterform: collapsing small
+    #: loops to cusps, reducing subscripts, dropping fine detail.  Font skeletons
+    #: give the full textbook shape of every letter, which is what a child
+    #: copying from the board produces; a practised hand writes a *reduced* form.
+    abbreviation: Range = (0.0, 0.85)
+    #: directional stroke-width contrast: how much thicker the downstroke is
+    #: than the upstroke.  A hand that presses on the pull stroke and lightens
+    #: on the push stroke is the single strongest "adult" cue; a monoline hand
+    #: reads as school printing regardless of how the letters are shaped.
+    width_contrast: Range = (0.10, 0.55)
+
     # --- stroke connection (the main "fast handwriting" cue) --- #
     #: probability of carrying the pen through to the next stroke instead of
     #: lifting it, when the gap is short enough
-    connect_probability: Range = (0.0, 0.80)
+    connect_probability: Range = (0.15, 0.95)
     #: longest pen-up gap (em) that may be turned into a connecting ligature
-    connect_max_gap: Range = (0.12, 0.80)
+    connect_max_gap: Range = (0.30, 1.20)
+    #: safety cap on how many strokes may be fused into one pen-down
+    connect_max_chain: int = 16
+    #: reject carry-overs that climb/drop more than this many em
+    connect_max_rise_em: float = 0.60
     #: how much a fast hand rounds off corners it should have drawn sharply
     corner_rounding: Range = (0.0, 1.0)
+
+    # --- v2 realism (measured on real Khmer handwriting; all off by default) --- #
+    #: extra forward lean added as ``slant += slant_fluency_lean * fluency * U(0.3, 1)``.
+    #: 0.10 reproduces the v1 behaviour.  Real slant is centred on zero, so v2
+    #: presets set this to 0 and centre ``slant`` instead.
+    slant_fluency_lean: float = 0.10
+    #: detached above-marks (ិ ី ឹ ើ ំ ់ ...) are shifted *up* by this many em
+    #: (times 0.6..1.4 per allograph).  Real hands float them well above the body.
+    mark_shift_above: Range = (0.0, 0.0)
+    #: ... and drift them to the right by this many em (times 0.4..1.6)
+    mark_drift_x: Range = (0.0, 0.0)
+    #: per-mark scale sigma (a hand draws marks smaller or larger than the font)
+    mark_scale_var: Range = (0.0, 0.0)
+    #: fractional vertical stretch of everything below the baseline zone (coeng,
+    #: below-vowels): real hands hang subscripts deeper than a typeface does
+    below_stretch: Range = (0.0, 0.0)
     #: probability the writer uses a given pen model
     pen_models: dict[str, float] = field(
         default_factory=lambda: {
-            "ballpoint": 0.4,
-            "gel": 0.2,
-            "fountain": 0.15,
-            "pencil": 0.15,
+            "ballpoint": 0.34,
+            "gel": 0.16,
+            "fountain": 0.28,
+            "pencil": 0.12,
             "marker": 0.10,
         }
     )
@@ -352,6 +428,12 @@ class DeformationConfig:
     cluster_level: bool = True
     stroke_level: bool = True
     point_level: bool = True
+    #: v2: displace detached marks / stretch the below-baseline zone (see
+    #: ``writer/deformation.py::displace_marks``).  A no-op unless the writer's
+    #: ``mark_*`` / ``below_stretch`` parameters are non-zero.
+    mark_level: bool = True
+    #: below this many em under the baseline counts as the subscript zone
+    below_zone_depth_em: float = 0.06
     #: spatial correlation length of the smooth noise field, in px
     noise_scale_px: float = 55.0
     tremor_scale_px: float = 6.0
@@ -373,6 +455,17 @@ class LayoutConfig:
     #: baseline position as a fraction of canvas height
     baseline_fraction: Range = (0.62, 0.74)
     padding_px: int = 18
+    #: Randomise the margin per sample over this inclusive range instead of using
+    #: the fixed ``padding_px``.  ``None`` (default) = v1, fixed margin.
+    #:
+    #: WHY: MEASURED at the recogniser's own input height - real crops are cut
+    #: flush to the ink (gemma_novel top/bottom margin 0.016/0.017, ink band
+    #: 0.968; real_test 0.040/0.042) while a fixed ``padding_px: 10`` on a 96 px
+    #: canvas gives 0.107/0.109 and an ink band of only 0.78.  That framing gap
+    #: is 1.26x of the measured 1.49x deficit in advance-per-character, which is
+    #: the single largest systematic real-vs-synthetic discrepancy: it directly
+    #: sets how many CTC frames a fixed-height CRNN spends per character.
+    padding_px_range: Range | None = None
     #: if the shaped line is wider than the canvas, shrink to fit (else clip)
     fit_to_width: bool = True
     min_em_px: float = 24.0
@@ -381,6 +474,12 @@ class LayoutConfig:
     #: 'auto' grows the canvas width to fit long text instead of shrinking the em
     auto_width: bool = False
     max_canvas_width: int = 4096
+    #: v2: after placement, push each grapheme cluster right until its ink starts
+    #: at least this many em after the previous cluster's ink ends (negative =
+    #: a small overlap is allowed, which keeps real "touching" pairs).  None = off
+    #: (v1).  Without it tight spacing on narrow clusters (digits!) piles letters
+    #: on top of each other into an unreadable blob.
+    min_cluster_gap_em: float | None = None
 
 
 @dataclass
@@ -391,14 +490,23 @@ class RenderConfig:
     supersample: int = 2
     #: stamp spacing along the path (px, at supersampled resolution)
     stamp_spacing_px: float = 0.45
-    #: width = base_width * (0.6 + pressure * 0.8)  (see ink.py)
-    width_pressure_gain: float = 0.8
-    width_pressure_bias: float = 0.6
+    #: width = base_width * (0.5 + pressure * 1.0)  (see ink.py)
+    width_pressure_gain: float = 1.0
+    width_pressure_bias: float = 0.5
     #: alpha  = (0.55 + 0.45 * pressure) * pen alpha
     alpha_pressure_gain: float = 0.45
     alpha_pressure_bias: float = 0.55
     #: fountain-pen style width modulation by direction
     nib_angle_deg: float = -40.0
+    #: direction the hand *pulls* the pen (canvas space, y down).  Motion along
+    #: this axis is the downstroke and gets ``WriterStyle.width_contrast`` more
+    #: width; motion against it is the upstroke and gets that much less.
+    pull_angle_deg: float = 78.0
+    #: how much of the writer's width_contrast the direction term actually uses
+    direction_width_gain: float = 1.0
+    #: opacity follows the same axis, but weakly (ink lays down thicker, not
+    #: much darker, on the pull stroke)
+    direction_alpha_gain: float = 0.30
     #: ink texture / bleed
     texture_strength: Range = (0.0, 0.25)
     bleed_probability: float = 0.35
@@ -424,6 +532,18 @@ class BackgroundConfig:
     texture_strength: Range = (0.0, 0.06)
     ruled_line_alpha: Range = (0.06, 0.25)
     ruled_spacing_frac: Range = (0.5, 1.1)  # of canvas height
+    #: Rule thickness as a fraction of canvas height.  ``None`` (default) = v1,
+    #: a 1 px line (2 px with p = 0.2) regardless of canvas size.
+    #:
+    #: WHY: the config asks for a ruled or grid background on 24% of samples but
+    #: MEASURED only 0.08% of crops carry a detectable full-width rule, against
+    #: 10.3% of real ones.  Three compounding reasons: the alpha range tops out
+    #: at ~27 gray levels of contrast, ``ruled_spacing_frac`` of 0.55-1.15 x
+    #: height usually fits a single rule in frame, and that rule is drawn on the
+    #: baseline where the ink covers it - then a 1 px line at h=96 is averaged
+    #: away by the resize to h=48 the recogniser applies.  A height-relative
+    #: width survives the resize.
+    ruled_line_width_frac: Range | None = None
 
 
 @dataclass
@@ -461,6 +581,58 @@ class DegradationConfig:
     p_sharpen: float = 0.15
 
 
+@dataclass
+class PaperConfig:
+    """Physical paper / reprographic degradation, delegated to **Augraphy**.
+
+    This is the "ink on real paper, then photocopied / scanned" stage.  It is a
+    deliberately *narrow* wrapper: only the Augraphy augmentations that stay
+    physically meaningful on a **text-line crop** are used (see
+    ``augmentation/paper.py`` for the tier tables and for the list of
+    augmentations that were evaluated and rejected).
+
+    Composition with :class:`DegradationConfig`
+    -------------------------------------------
+    The two stages model different halves of the physical chain and are meant to
+    run *together*, paper first::
+
+        render (ink laid on paper)
+          -> paper   : ink bleeding into the fibres, mottled ballpoint flow,
+                       low-ink streaks, toner speckle, fax binarisation
+          -> degrade : the *capture* chain - optical blur, page pose, uneven
+                       illumination, sensor noise, downscale, JPEG
+
+    That is the order a real sample goes through, so ``stage`` defaults to
+    ``"before_degradation"``.  ``"after_degradation"`` and
+    ``"replace_degradation"`` exist for experiments (the latter switches the
+    ``degradation`` stage off for the run) but are not what the shipped presets
+    use.
+
+    Augraphy is an **optional** dependency (``pip install
+    'khmer-handwriting-synth[paper]'``).  Nothing imports it unless
+    ``enabled`` is true, and the error raised when it is missing names the
+    extra to install.
+    """
+
+    #: off by default - every pre-existing preset keeps its exact behaviour
+    enabled: bool = False
+    #: intensity tier: ``'light'`` (subtle, realistic scan - use for the
+    #: already-handwritten faces in ``fonts/km``) or ``'heavy'``
+    #: (photocopy/fax grade - use for the printed Google faces in ``fonts/``)
+    preset: str = "light"
+    #: probability that a given sample gets the paper treatment at all, so one
+    #: dataset can mix treated and untreated images
+    apply_prob: float = 1.0
+    #: global multiplier on every per-effect probability *and* on the amplitude
+    #: of the effects that have a natural zero.  1.0 = the tier as tabulated.
+    intensity: float = 1.0
+    #: per-effect switches, e.g. ``{"faxify": false}``.  Keys not listed keep the
+    #: tier default (on).  Unknown keys raise, so a typo fails loudly.
+    effects: dict[str, bool] = field(default_factory=dict)
+    #: ``'before_degradation'`` | ``'after_degradation'`` | ``'replace_degradation'``
+    stage: str = "before_degradation"
+
+
 # --------------------------------------------------------------------------- #
 # dataset
 # --------------------------------------------------------------------------- #
@@ -493,6 +665,76 @@ class DatasetConfig:
 
 
 @dataclass
+class AbbreviationConfig:
+    """Reduction of the printed letterform toward a practised hand.
+
+    Everything upstream of this stage produces the *textbook* shape of a letter,
+    because the geometry is the medial axis of a font outline.  A practised hand
+    does not draw that shape more sloppily - it draws a genuinely different,
+    reduced shape: loops that a typeface closes become cusps, subscripts shrink
+    toward the base, and fine detail disappears.  Deformation noise cannot
+    produce that, which is why an unabbreviated trace reads as school printing
+    however much it is wobbled.
+
+    All lengths are in em so they are independent of the rendered size.
+
+    **Disabled by default: evaluated on Khmer and rejected.**  The premise holds
+    for Latin, where a descender or a closed bowl is largely ornament that a
+    practised hand may reduce.  It does not hold here.  In Khmer the coeng below
+    the baseline *is a consonant*, and the loops are what separate one letter
+    from the next, so both reductions delete content rather than decoration:
+    with the descender compression on, ខ្ញុំ loses its ញ and collapses toward a
+    blob.  Side-by-side rendering of the three reductions in isolation put the
+    damage on ``loop_max_collapse`` and ``subscript_max_shrink``;
+    ``detail_epsilon_em`` alone is harmless but also buys almost nothing.
+
+    Kept, configured and tested rather than deleted: the machinery is sound and
+    the same idea may well pay off on a script whose below-baseline marks really
+    are ornamental, or here at much lower strength.  Set ``enabled = True`` to
+    experiment - and look at a stacked cluster before trusting the result.
+    """
+
+    enabled: bool = False
+
+    # --- loop collapse --- #
+    #: arc length of the shortest sub-path worth treating as a collapsible loop.
+    #: Measured Khmer skeleton loops run 0.32-0.96 em of arc (median 0.45), so
+    #: the window has to be wide; the old 0.055-0.42 window excluded the median
+    #: loop entirely while admitting straight runs.
+    loop_min_em: float = 0.12
+    #: above this the "loop" is the body of the letter, not a flourish - a
+    #: writer who collapsed those would be writing a different letter
+    loop_max_em: float = 0.75
+    #: how close the two ends of the sub-path must come to count as a loop
+    loop_close_em: float = 0.14
+    #: arc length must exceed this multiple of the closing distance.  Without a
+    #: tortuosity test *every* nearly-straight run qualifies (a point 0.05 em
+    #: along a straight line is 0.05 em away), which is not a loop at all.
+    loop_min_ratio: float = 3.0
+    #: strongest pinch toward the loop centroid, at abbreviation = 1.  The sin^2
+    #: taper means the extreme point moves by less than this; measured on real
+    #: skeletons, 0.85 here displaces the loop by ~0.058 em, about a third of a
+    #: typical loop's width.
+    loop_max_collapse: float = 0.85
+
+    # --- subscript (coeng) reduction --- #
+    #: where the descender zone starts, below the baseline (line space, y down,
+    #: baseline at y = 0).  Points deeper than this are compressed toward it.
+    subscript_min_depth_em: float = 0.05
+    #: strongest size reduction of a subscript, at abbreviation = 1
+    subscript_max_shrink: float = 0.32
+
+    # --- detail softening --- #
+    #: Douglas-Peucker tolerance at abbreviation = 1.  Kept well under the
+    #: thinnest meaningful Khmer feature so it removes fussiness, not structure.
+    detail_epsilon_em: float = 0.022
+    #: never simplify a stroke below this many points
+    min_points: int = 4
+    #: per-letter scatter of the abbreviation amount (a hand is not uniform)
+    amount_jitter: float = 0.18
+
+
+@dataclass
 class PipelineConfig:
     text: TextConfig = field(default_factory=TextConfig)
     shaping: ShapingConfig = field(default_factory=ShapingConfig)
@@ -500,6 +742,7 @@ class PipelineConfig:
     raster: RasterConfig = field(default_factory=RasterConfig)
     skeleton: SkeletonConfig = field(default_factory=SkeletonConfig)
     planner: PlannerConfig = field(default_factory=PlannerConfig)
+    abbreviation: AbbreviationConfig = field(default_factory=AbbreviationConfig)
     smoothing: SmoothingConfig = field(default_factory=SmoothingConfig)
     writer: WriterSamplingConfig = field(default_factory=WriterSamplingConfig)
     timing: TimingConfig = field(default_factory=TimingConfig)
@@ -509,6 +752,7 @@ class PipelineConfig:
     render: RenderConfig = field(default_factory=RenderConfig)
     background: BackgroundConfig = field(default_factory=BackgroundConfig)
     degradation: DegradationConfig = field(default_factory=DegradationConfig)
+    paper: PaperConfig = field(default_factory=PaperConfig)
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
 
     # ---------------- serialisation ---------------- #

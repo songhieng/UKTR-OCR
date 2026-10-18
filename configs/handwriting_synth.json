@@ -1,192 +1,92 @@
 {
-  "text": {
-    "unicode_form": "NFC",
-    "fix_deprecated": true,
-    "reorder_marks": true,
-    "dedup_marks": true,
-    "zwsp_policy": "keep",
-    "strip_joiners": false,
-    "collapse_whitespace": true
-  },
-  "shaping": {
-    "script": "Khmr",
-    "language": "km",
-    "direction": "ltr",
-    "cluster_level": 0,
-    "features": {}
-  },
   "fonts": {
     "paths": [
       "data/fonts"
     ],
-    "weights": {
-      "Fasthand-Regular": 12.0,
-      "Freehand-Regular": 12.0,
-      "KhmerOS_fasthand": 12.0,
-      "KhmerOS_freehand": 12.0
-    },
     "exclude": [
+      "Angkor",
       "Angkor-Regular",
+      "Battambang-Bold",
+      "Bayon",
       "Bayon-Regular",
+      "Bokor",
       "Bokor-Regular",
+      "Chrieng",
+      "Content-Bold",
+      "Dangrek",
       "Dangrek-Regular",
-      "KhmerOS_bokor",
-      "KhmerOS_metalchrieng",
-      "KhmerOS_muol",
-      "KhmerOS_muollight",
-      "KhmerOS_muolpali",
+      "KdamThmor",
+      "KdamThmorPro-Regular",
+      "Koulen",
       "Koulen-Regular",
-      "Metal-Regular",
+      "Metal-Chrieng",
+      "Metalchrieng",
+      "Moul",
       "Moul-Regular",
+      "Moulpali",
       "Moulpali-Regular",
+      "OdorMeanChey",
       "OdorMeanChey-Regular",
       "PreahVihear-Regular",
-      "Taprom-Regular"
+      "Preahvihear",
+      "Suwannaphum-Bold",
+      "Taprom",
+      "Taprom-Regular",
+      "muol"
     ],
-    "variations": {},
-    "coverage_probe": "ក្នុំ"
-  },
-  "raster": {
-    "px_per_em": 160,
-    "supersample": 2,
-    "threshold": 0.5,
-    "closing_radius": 2,
-    "opening_radius": 0,
-    "min_component_area_ratio": 0.0008,
-    "max_hole_fill_ratio": 0.0
-  },
-  "skeleton": {
-    "method": "zhang",
-    "prune_spur_em": 0.045,
-    "min_component_len_em": 0.02,
-    "rdp_epsilon_em": 0.0035,
-    "prune_iterations": 3,
-    "unit": "cluster"
-  },
-  "planner": {
-    "w_pen_up_count": 1.0,
-    "w_pen_up_distance": 2.0,
-    "w_direction_change": 0.6,
-    "w_reversal": 1.5,
-    "w_spatial_order": 0.8,
-    "temperature": 0.35,
-    "num_candidates": 2,
-    "sharp_angle_deg": 75.0,
-    "start_top_weight": 1.0,
-    "start_left_weight": 0.7,
-    "prefer_downward": 0.5,
-    "prefer_rightward": 0.35,
-    "bridge_penalty": 0.8,
-    "pen_lift_bias": 0.05,
-    "component_order": "natural",
-    "plan_variants": 3
-  },
-  "smoothing": {
-    "method": "catmull_rom",
-    "alpha": 0.5,
-    "corner_angle_deg": 68.0,
-    "point_spacing_px": 2.2,
-    "savgol_window": 15,
-    "savgol_poly": 3,
-    "savgol_mix": 1.0,
-    "min_points": 3
+    "weights": {
+      "Fasthand-Regular": 3.0,
+      "Freehand-Regular": 2.5,
+      "Metal-Regular": 2.0,
+      "KantumruyPro-Italic-VF": 1.5,
+      "Khmer-Regular": 1.5,
+      "Battambang-Light": 1.2,
+      "Battambang-Regular": 1.0,
+      "Chenla-Regular": 1.0,
+      "Siemreap-Regular": 1.0,
+      "NotoSansKhmer-VF": 0.35,
+      "NotoSerifKhmer-VF": 0.35,
+      "Content-Regular": 0.4,
+      "Hanuman-VF": 0.4,
+      "Nokora-VF": 0.4,
+      "Suwannaphum-Regular": 0.4,
+      "Suwannaphum-Light": 0.4,
+      "KantumruyPro-VF": 0.5,
+      "KhmerOS_fasthand": 3.0,
+      "KhmerOS_freehand": 2.5
+    },
+    "exclude_match": "smart",
+    "default_weight": 0.09
   },
   "writer": {
-    "fluency": [
-      0.5,
-      0.94
-    ],
     "slant": [
-      -0.18,
-      0.38
+      -0.22,
+      0.22
     ],
-    "horizontal_scale": [
-      0.86,
-      1.16
+    "slant_fluency_lean": 0.0,
+    "width_contrast": [
+      0.03,
+      0.15
     ],
-    "vertical_scale": [
-      0.84,
-      1.18
+    "pressure_mean": [
+      0.6,
+      0.92
     ],
-    "character_spacing": [
-      0.8,
-      1.08
-    ],
-    "word_spacing": [
-      0.8,
-      1.6
-    ],
-    "line_spacing": [
-      0.9,
-      1.4
-    ],
-    "spacing_jitter": [
-      0.005,
-      0.115
-    ],
-    "spacing_drift": [
-      0.0,
-      0.085
-    ],
-    "spacing_tight_rate": [
-      0.0,
-      0.34
+    "pressure_variation": [
+      0.02,
+      0.07
     ],
     "baseline_amplitude": [
       0.0,
-      0.052
-    ],
-    "baseline_frequency": [
-      0.15,
-      1.3
-    ],
-    "baseline_drift": [
-      -0.06,
-      0.06
+      0.042
     ],
     "baseline_walk": [
       0.0,
-      0.038
+      0.042
     ],
-    "local_jitter": [
-      0.0,
-      0.016
-    ],
-    "tremor": [
-      0.0,
-      0.01
-    ],
-    "stroke_smoothness": [
-      0.35,
-      1.0
-    ],
-    "stroke_width": [
-      0.028,
-      0.058
-    ],
-    "pressure_mean": [
-      0.32,
-      0.78
-    ],
-    "pressure_variation": [
-      0.03,
-      0.22
-    ],
-    "writing_speed": [
-      0.55,
-      2.2
-    ],
-    "speed_variation": [
-      0.05,
-      0.32
-    ],
-    "pen_lift_bias": [
-      0.0,
-      0.22
-    ],
-    "glyph_rotation": [
-      0.0,
-      0.075
+    "baseline_drift": [
+      -0.05,
+      0.05
     ],
     "glyph_translation": [
       0.0,
@@ -196,6 +96,72 @@
       0.0,
       0.085
     ],
+    "spacing_tight_rate": [
+      0.05,
+      0.35
+    ],
+    "spacing_jitter": [
+      0.01,
+      0.06
+    ],
+    "mark_shift_above": [
+      0.02,
+      0.08
+    ],
+    "mark_drift_x": [
+      0.0,
+      0.03
+    ],
+    "mark_scale_var": [
+      0.0,
+      0.08
+    ],
+    "below_stretch": [
+      0.05,
+      0.25
+    ],
+    "pen_models": {
+      "ballpoint": 0.78,
+      "gel": 0.17,
+      "pencil": 0.03,
+      "fountain": 0.02
+    },
+    "ink_colors": {
+      "navy": 0.4,
+      "ink_blue": 0.25,
+      "deep_black": 0.2,
+      "black": 0.1,
+      "dark_blue": 0.05
+    },
+    "stroke_width": [
+      0.04,
+      0.09
+    ],
+    "character_spacing": [
+      0.94,
+      1.12
+    ],
+    "spacing_tight_max_frac": 0.2,
+    "fluency": [
+      0.3,
+      1.0
+    ],
+    "archetype_weights": {
+      "careful": 0.0,
+      "neat": 0.15,
+      "average": 0.3,
+      "fast": 0.38,
+      "scrawl": 0.17,
+      "shaky": 0.0
+    },
+    "local_jitter": [
+      0.0,
+      0.016
+    ],
+    "tremor": [
+      0.0,
+      0.002
+    ],
     "local_elasticity": [
       0.0,
       0.03
@@ -204,200 +170,172 @@
       0.0,
       0.055
     ],
+    "stroke_smoothness": [
+      0.75,
+      1.0
+    ],
+    "corner_rounding": [
+      0.3,
+      1.0
+    ],
+    "glyph_rotation": [
+      0.0,
+      0.075
+    ],
     "slant_variation": [
       0.0,
       0.085
     ],
+    "word_spacing": [
+      0.8,
+      1.3
+    ],
+    "spacing_drift": [
+      0.0,
+      0.04
+    ],
+    "horizontal_scale": [
+      0.9,
+      1.14
+    ],
+    "vertical_scale": [
+      0.9,
+      1.1
+    ],
     "connect_probability": [
-      0.2,
-      0.9
+      0.15,
+      0.6
     ],
     "connect_max_gap": [
-      0.12,
+      0.3,
       0.8
-    ],
-    "corner_rounding": [
-      0.2,
-      1.0
-    ],
-    "pen_models": {
-      "ballpoint": 0.48,
-      "gel": 0.2,
-      "fountain": 0.15,
-      "pencil": 0.07,
-      "marker": 0.1
-    },
-    "ink_colors": {
-      "black": 0.5,
-      "dark_blue": 0.3,
-      "blue": 0.15,
-      "faded": 0.05
-    }
-  },
-  "timing": {
-    "base_speed_em_per_s": 7.0,
-    "curvature_lambda": 2.6,
-    "curvature_exponent": 0.3333,
-    "ramp_fraction": 0.18,
-    "end_speed_factor": 0.3,
-    "speed_noise_sigma": 0.12,
-    "speed_noise_scale_px": 40.0,
-    "pen_up_speed_factor": 2.4,
-    "pen_up_reaction_ms": 22.0,
-    "min_dt_ms": 0.5,
-    "max_dt_ms": 120.0
-  },
-  "pressure": {
-    "ramp_fraction": 0.16,
-    "envelope_exponent": 1.0,
-    "noise_scale_px": 55.0,
-    "speed_coupling": 0.18,
-    "coupling_smooth_points": 6.0,
-    "smooth_points": 2.5,
-    "ligature_pressure": 0.42,
-    "min_pressure": 0.05,
-    "max_pressure": 1.0
-  },
-  "deformation": {
-    "global_transform": true,
-    "baseline": true,
-    "cluster_level": true,
-    "stroke_level": true,
-    "point_level": true,
-    "noise_scale_px": 55.0,
-    "tremor_scale_px": 6.0,
-    "max_displacement_em": 0.22
-  },
-  "layout": {
-    "canvas_width": 64,
-    "canvas_height": 128,
-    "em_fraction": [
-      0.44,
-      0.62
-    ],
-    "baseline_fraction": [
-      0.62,
-      0.74
-    ],
-    "padding_px": 12,
-    "fit_to_width": true,
-    "min_em_px": 24.0,
-    "random_x_placement": true,
-    "auto_width": true,
-    "max_canvas_width": 3072
+    ]
   },
   "render": {
-    "supersample": 2,
-    "stamp_spacing_px": 0.45,
-    "width_pressure_gain": 1.15,
-    "width_pressure_bias": 0.3,
-    "alpha_pressure_gain": 0.45,
-    "alpha_pressure_bias": 0.55,
-    "nib_angle_deg": -40.0,
-    "texture_strength": [
-      0.0,
-      0.25
-    ],
-    "bleed_probability": 0.35,
-    "bleed_sigma_px": [
-      0.4,
-      1.4
-    ],
-    "draw_pen_up": false
-  },
-  "background": {
-    "kinds": {
-      "white": 0.25,
-      "off_white": 0.3,
-      "textured": 0.2,
-      "ruled": 0.15,
-      "grid": 0.1
-    },
-    "base_brightness": [
-      0.86,
-      1.0
-    ],
+    "alpha_pressure_bias": 0.9,
+    "alpha_pressure_gain": 0.1,
     "texture_strength": [
       0.0,
       0.06
     ],
+    "bleed_probability": 0.25,
+    "bleed_sigma_px": [
+      0.3,
+      1.0
+    ]
+  },
+  "layout": {
+    "canvas_width": 144,
+    "canvas_height": 96,
+    "em_fraction": [
+      0.5,
+      0.7
+    ],
+    "baseline_fraction": [
+      0.6,
+      0.74
+    ],
+    "padding_px": 2,
+    "fit_to_width": true,
+    "min_em_px": 26.0,
+    "random_x_placement": false,
+    "auto_width": true,
+    "max_canvas_width": 1536,
+    "min_cluster_gap_em": -0.02,
+    "padding_px_range": [
+      0,
+      6
+    ]
+  },
+  "background": {
+    "kinds": {
+      "white": 0.26,
+      "off_white": 0.24,
+      "grid": 0.24,
+      "ruled": 0.23,
+      "textured": 0.03
+    },
+    "base_brightness": [
+      0.55,
+      1.0
+    ],
+    "texture_strength": [
+      0.0,
+      0.08
+    ],
     "ruled_line_alpha": [
-      0.06,
-      0.25
+      0.25,
+      0.65
     ],
     "ruled_spacing_frac": [
-      0.5,
-      1.1
+      0.25,
+      0.6
+    ],
+    "ruled_line_width_frac": [
+      0.012,
+      0.03
     ]
   },
   "degradation": {
     "enabled": true,
-    "p_blur": 0.55,
+    "p_blur": 0.45,
     "blur_sigma": [
-      0.3,
-      1.6
+      0.2,
+      0.7
     ],
-    "p_motion_blur": 0.12,
-    "motion_kernel": [
-      3,
-      9
-    ],
+    "p_motion_blur": 0.0,
     "p_downscale": 0.45,
     "downscale_factor": [
-      0.45,
-      0.9
+      0.6,
+      0.95
     ],
-    "p_brightness": 0.6,
+    "p_brightness": 0.5,
     "brightness": [
-      0.75,
-      1.25
-    ],
-    "p_contrast": 0.5,
-    "contrast": [
       0.7,
-      1.35
+      1.2
+    ],
+    "p_contrast": 0.4,
+    "contrast": [
+      0.65,
+      1.4
     ],
     "p_uneven_light": 0.3,
     "uneven_light_strength": [
-      0.08,
-      0.3
+      0.04,
+      0.18
     ],
-    "p_shadow": 0.08,
+    "p_shadow": 0.1,
     "shadow_strength": [
-      0.1,
-      0.3
+      0.05,
+      0.2
     ],
     "p_perspective": 0.25,
     "perspective_strength": [
       0.002,
-      0.02
+      0.012
     ],
-    "p_rotate": 0.6,
+    "p_rotate": 0.5,
     "rotate_deg": [
-      -2.5,
-      2.5
+      -2.0,
+      2.0
     ],
     "p_noise": 0.7,
     "noise_sigma": [
-      0.004,
+      0.008,
       0.045
     ],
-    "p_jpeg": 0.65,
+    "p_jpeg": 0.7,
     "jpeg_quality": [
-      35,
+      45,
       92
     ],
-    "p_ink_fade": 0.15,
+    "p_ink_fade": 0.05,
     "ink_fade": [
-      0.15,
-      0.4
+      0.05,
+      0.2
     ],
-    "p_stains": 0.1,
-    "stain_count": [
-      1,
-      4
-    ],
-    "p_sharpen": 0.15
+    "p_stains": 0.05,
+    "p_sharpen": 0.1
   },
   "dataset": {
     "output_dir": "data/raw/khmer_synth_hw",
@@ -417,5 +355,13 @@
     "use_disk_cache": true,
     "validate": true,
     "shard_size": 5000
+  },
+  "skeleton": {
+    "prune_spur_em": 0.06,
+    "prune_iterations": 4
+  },
+  "smoothing": {
+    "savgol_mix": 0.65,
+    "savgol_window": 9
   }
 }

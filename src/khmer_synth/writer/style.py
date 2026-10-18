@@ -71,9 +71,19 @@ class WriterStyle:
     connect_max_gap: float = 0.12
     corner_rounding: float = 0.0
 
+    # --- mark placement (v2; em units, 0 = font positions) --- #
+    mark_shift_above: float = 0.0
+    mark_drift_x: float = 0.0
+    mark_scale_var: float = 0.0
+    below_stretch: float = 0.0
+
     # --- pen dynamics --- #
     stroke_smoothness: float = 1.0
     stroke_width: float = 0.05
+    #: downstroke-vs-upstroke width contrast (0 = monoline)
+    width_contrast: float = 0.0
+    #: how far the printed letterform is reduced (0 = full textbook shape)
+    abbreviation: float = 0.0
     pressure_mean: float = 0.6
     pressure_variation: float = 0.1
     writing_speed: float = 1.0
@@ -105,7 +115,7 @@ class WriterStyle:
                 v = min(hi, v)
             d[key] = float(v)
 
-        for k in ("horizontal_scale", "vertical_scale", "character_spacing", "stroke_width"):
+        for k in ("horizontal_scale", "vertical_scale", "character_spacing", "stroke_width", "width_contrast"):
             j(k, 0.6, lo=0.05)
         for k in ("baseline_amplitude", "local_jitter", "tremor", "local_elasticity", "overshoot"):
             j(k, 1.0, lo=0.0)
@@ -125,11 +135,13 @@ def sample_writer(
     seed: int = 0,
     font_keys: list[str] | None = None,
     font_weights: dict[str, float] | None = None,
+    font_default_weight: float = 1.0,
 ) -> WriterStyle:
     """Deterministically materialise writer ``writer_id``.
 
-    ``font_weights`` (the preset's ``fonts.weights``, default 1) biases which
-    fonts a writer adopts as their own hand.
+    ``font_weights`` (``FontConfig.weights``) biases which fonts a writer adopts
+    as their "hand".  With no (or all-equal) weights the choice is uniform and
+    bit-identical to v1.
     """
     cfg = cfg or WriterSamplingConfig()
     rng = make_rng("writer", seed, writer_id)
@@ -138,8 +150,10 @@ def sample_writer(
     # uniform cloud, and each one fixes a *fluency* band.  Most real handwriting
     # in the wild is written at speed, so the mass sits well above the middle.
     names = ["careful", "neat", "average", "fast", "scrawl", "shaky"]
-    probs = [0.10, 0.16, 0.28, 0.26, 0.12, 0.08]
-    archetype = str(rng.choice(names, p=probs))
+    w = np.array([max(float(cfg.archetype_weights.get(n, 0.0)), 0.0) for n in names])
+    if w.sum() <= 0:
+        w = np.array([0.10, 0.16, 0.28, 0.26, 0.12, 0.08])
+    archetype = str(rng.choice(names, p=w / w.sum()))
     fluency_band = {
         "careful": (0.03, 0.20),
         "neat": (0.15, 0.40),
@@ -161,6 +175,20 @@ def sample_writer(
         centre = lo + (hi - lo) * (fluency**power)
         return float(np.clip(rng.normal(centre, (hi - lo) * spread), lo, hi))
 
+    def by_care(rng_range, power: float = 1.0, spread: float = 0.22) -> float:
+        """Sample a parameter that *shrinks* with fluency.
+
+        Baseline waviness is the case that matters.  A wandering, sinusoidal
+        baseline is a hallmark of an unpractised hand placing each letter
+        separately; a practised hand holds a straight line and, when it drifts,
+        drifts monotonically (a sloping line, handled by ``baseline_drift``).
+        Tying wave amplitude to fluency gave the *fastest* writers the waviest
+        lines, which is exactly backwards and reads as childish.
+        """
+        lo, hi = float(rng_range[0]), float(rng_range[1])
+        centre = lo + (hi - lo) * ((1.0 - fluency) ** power)
+        return float(np.clip(rng.normal(centre, (hi - lo) * spread), lo, hi))
+
     style = WriterStyle(
         writer_id=writer_id,
         name=f"writer_{writer_id:04d}",
@@ -173,14 +201,16 @@ def sample_writer(
         character_spacing=uniform(rng, cfg.character_spacing),
         word_spacing=uniform(rng, cfg.word_spacing),
         line_spacing=uniform(rng, cfg.line_spacing),
-        baseline_amplitude=by_fluency(cfg.baseline_amplitude),
+        baseline_amplitude=by_care(cfg.baseline_amplitude),
         baseline_frequency=uniform(rng, cfg.baseline_frequency),
         baseline_drift=triangular(rng, cfg.baseline_drift),
-        baseline_walk=by_fluency(cfg.baseline_walk),
+        baseline_walk=by_care(cfg.baseline_walk),
         baseline_phase=float(rng.uniform(0, 2 * np.pi)),
         local_jitter=by_fluency(cfg.local_jitter, power=0.8),
         # tremor is a slow-writing artefact: a confident fast hand does not shake
-        tremor=uniform(rng, cfg.tremor) * (1.0 if archetype == "shaky" else (1.0 - fluency) ** 1.5),
+        tremor=(
+            uniform(rng, cfg.tremor) if archetype == "shaky" else by_care(cfg.tremor, power=1.5)
+        ),
         local_elasticity=by_fluency(cfg.local_elasticity),
         overshoot=by_fluency(cfg.overshoot, power=0.8),
         glyph_rotation=by_fluency(cfg.glyph_rotation),
@@ -193,8 +223,16 @@ def sample_writer(
         connect_probability=by_fluency(cfg.connect_probability, power=1.5, spread=0.16),
         connect_max_gap=by_fluency(cfg.connect_max_gap),
         corner_rounding=by_fluency(cfg.corner_rounding, power=1.2),
-        stroke_smoothness=by_fluency(cfg.stroke_smoothness, power=0.7),
+        # mark placement is a hand property with only a weak speed dependence:
+        # careful writers also float their marks, just less far
+        mark_shift_above=by_fluency(cfg.mark_shift_above, power=0.6, spread=0.3),
+        mark_drift_x=by_fluency(cfg.mark_drift_x, power=0.8, spread=0.3),
+        mark_scale_var=uniform(rng, cfg.mark_scale_var),
+        below_stretch=by_fluency(cfg.below_stretch, power=0.6, spread=0.3),
+        stroke_smoothness=uniform(rng, cfg.stroke_smoothness),
         stroke_width=uniform(rng, cfg.stroke_width),
+        width_contrast=uniform(rng, cfg.width_contrast),
+        abbreviation=by_fluency(cfg.abbreviation, power=0.85),
         pressure_mean=uniform(rng, cfg.pressure_mean),
         pressure_variation=by_fluency(cfg.pressure_variation),
         writing_speed=by_fluency(cfg.writing_speed, power=0.9, spread=0.18),
@@ -203,10 +241,13 @@ def sample_writer(
         pen_model=choice_weighted(rng, cfg.pen_models),
         ink_color=choice_weighted(rng, cfg.ink_colors),
     )
-    # a fast hand also writes tighter, narrower and leans forward more
-    style.character_spacing *= 1.0 - 0.15 * fluency
-    style.horizontal_scale *= 1.0 - 0.10 * fluency
-    style.slant += 0.30 * fluency * float(rng.uniform(0.5, 1.0))
+    # a fast hand also writes tighter and (configurably) leans forward more
+    style.character_spacing *= 1.0 - 0.07 * fluency
+    style.slant += cfg.slant_fluency_lean * fluency * float(rng.uniform(0.3, 1.0))
+    # ... and its line error is a monotone slope rather than a wave
+    style.baseline_drift *= 1.0 + 0.9 * fluency
+    if archetype == "shaky":  # tremor, not waviness, is what a shaky hand has
+        style.baseline_amplitude *= 1.3
     if archetype == "shaky":
         style.writing_speed *= 0.75
     if rng.random() < 0.12:  # a bold, heavy-handed minority
@@ -214,8 +255,17 @@ def sample_writer(
         style.pressure_mean = float(min(0.95, style.pressure_mean * 1.25))
     if font_keys:
         k = int(rng.integers(1, min(3, len(font_keys)) + 1))
-        w = np.array([float((font_weights or {}).get(f, 1.0)) for f in font_keys])
-        style.preferred_fonts = [str(x) for x in rng.choice(font_keys, size=k, replace=False, p=w / w.sum())]
+        # WHY font_default_weight: an unlisted font used to be pinned at 1.0 here
+        # too, so with 232 unlisted faces in fonts/km a writer almost never adopted
+        # one of the 17 tuned faces as their hand (MEASURED: 7.3% of the mass).
+        w = np.array(
+            [max(float((font_weights or {}).get(str(f), font_default_weight)), 0.0) for f in font_keys]
+        )
+        if font_weights and w.sum() > 0 and not np.allclose(w, w[0]):
+            chosen = rng.choice(font_keys, size=k, replace=False, p=w / w.sum())
+        else:
+            chosen = rng.choice(font_keys, size=k, replace=False)
+        style.preferred_fonts = [str(x) for x in chosen]
         style.font_loyalty = float(rng.uniform(0.6, 0.95))
     return style
 
@@ -226,10 +276,13 @@ def writer_table(
     seed: int = 0,
     font_keys: list[str] | None = None,
     font_weights: dict[str, float] | None = None,
+    font_default_weight: float = 1.0,
 ) -> dict[str, dict]:
     """Materialise a whole writer population (for ``writers.json``)."""
     return {
-        f"writer_{i:04d}": sample_writer(i, cfg, seed, font_keys, font_weights).to_dict()
+        f"writer_{i:04d}": sample_writer(
+            i, cfg, seed, font_keys, font_weights, font_default_weight
+        ).to_dict()
         for i in range(num_writers)
     }
 

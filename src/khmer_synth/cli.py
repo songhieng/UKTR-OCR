@@ -22,7 +22,9 @@ def add_common_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--width", type=int, default=None, help="canvas width in px")
     parser.add_argument("--height", type=int, default=None, help="canvas height in px")
     parser.add_argument("--seed", type=int, default=None, help="global RNG seed")
-    parser.add_argument("--no-degrade", action="store_true", help="disable the degradation stage")
+    parser.add_argument(
+        "--no-degrade", action="store_true", help="disable the degradation and paper stages"
+    )
     return parser
 
 
@@ -38,6 +40,7 @@ def build_config(args: argparse.Namespace) -> PipelineConfig:
         cfg.dataset.seed = int(args.seed)
     if getattr(args, "no_degrade", False):
         cfg.degradation.enabled = False
+        cfg.paper.enabled = False
     if getattr(args, "overrides", None):
         cfg = merge_overrides(cfg, args.overrides)
     return cfg

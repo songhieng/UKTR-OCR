@@ -29,6 +29,8 @@ class PenModel:
     speed_thinning: float = 0.0
     #: nib aspect ratio (1 = round, <1 = calligraphic/chisel)
     nib_ratio: float = 1.0
+    #: how much this pen expresses the writer's downstroke/upstroke contrast
+    direction_contrast: float = 1.0
     #: grain / texture amount
     texture: float = 0.0
     #: ink spread into the paper (gaussian sigma in px)
@@ -41,22 +43,12 @@ class PenModel:
 
 PEN_MODELS: dict[str, PenModel] = {
     "ballpoint": PenModel(
-        "ballpoint",
-        width_scale=0.85,
-        alpha=0.96,
-        width_pressure=0.9,
-        alpha_pressure=0.8,
-        speed_thinning=0.3,
-        texture=0.05,
+        "ballpoint", width_scale=0.85, alpha=0.96, width_pressure=0.7, alpha_pressure=0.8,
+        texture=0.05, direction_contrast=0.85
     ),
     "gel": PenModel(
-        "gel",
-        width_scale=1.0,
-        alpha=0.99,
-        width_pressure=0.7,
-        alpha_pressure=0.35,
-        speed_thinning=0.25,
-        bleed=0.35,
+        "gel", width_scale=1.0, alpha=0.99, width_pressure=0.5, alpha_pressure=0.35, bleed=0.35,
+        direction_contrast=0.7
     ),
     "fountain": PenModel(
         "fountain",
@@ -67,6 +59,7 @@ PEN_MODELS: dict[str, PenModel] = {
         speed_thinning=0.35,
         nib_ratio=0.55,
         bleed=0.6,
+        direction_contrast=1.6,
     ),
     "pencil": PenModel(
         "pencil",
@@ -76,6 +69,7 @@ PEN_MODELS: dict[str, PenModel] = {
         alpha_pressure=0.9,
         texture=0.45,
         edge_softness=0.5,
+        direction_contrast=1.0,
     ),
     "marker": PenModel(
         "marker",
@@ -87,6 +81,7 @@ PEN_MODELS: dict[str, PenModel] = {
         bleed=1.0,
         overlap_darkening=True,
         edge_softness=0.25,
+        direction_contrast=0.25,
     ),
 }
 
@@ -99,6 +94,12 @@ INK_COLORS: dict[str, tuple[float, float, float]] = {
     "faded": (0.32, 0.33, 0.38),
     "red": (0.55, 0.10, 0.12),
     "pencil_grey": (0.28, 0.29, 0.31),
+    # v2: measured on real crops (HF khmer-handwritten-4.2k) the median ink pixel
+    # is (0.13, 0.12, 0.21) - a near-black navy, far darker than "blue" above.
+    # New names rather than changed values, so v1 renders are reproducible.
+    "navy": (0.07, 0.08, 0.20),
+    "ink_blue": (0.09, 0.13, 0.38),
+    "deep_black": (0.04, 0.04, 0.05),
 }
 
 

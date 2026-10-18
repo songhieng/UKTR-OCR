@@ -54,6 +54,46 @@ ABOVE_SIGNS = frozenset(
 )
 POST_SIGNS = frozenset({SIGN_REAHMUK, SIGN_YUUKALEAPINTU})
 
+# --- where a combining mark is actually DRAWN relative to its base ---------- #
+# WHY this table exists: ``writer/deformation.py::displace_marks`` used to decide
+# "this is a floating above-mark" purely from geometry (is the component's bottom
+# above the body's top?).  That test cannot tell a diacritic from a detached part
+# of the letter itself, and Khmer has several of those - the upper horn of
+# ក គ ត, the top serif of ដ, the top element of ភ.  MEASURED on 40 fonts x 5
+# writers with `real_match_v2`: the geometric test fired on 59.3% of renders of
+# bare (completely unmarked) ក គ ត ដ ភ ន ស - ត/ភ 0.825, ក/គ 0.775, ដ 0.725 - and
+# on 60.4% of clusters carrying a below- or side-vowel (កុ 0.775, កែ 0.950,
+# ក្ក 0.775), i.e. it floated ink that is not a mark at all.  Those letters are
+# exactly the model's top confusions (ក->ត 74, គ->ត 74, ន->ដ 88, ស->ត 79), so the
+# generator was manufacturing the confusion it is meant to teach against.
+# Displacement is now gated on the cluster TEXT containing one of these.
+#
+# Membership was verified by rendering ក/ន/ស/ម + each mark over 30 fonts and
+# measuring how often the mark contributes a component lying above the base top:
+# ិ .908  ី .892  ឹ .850  ឺ .875  ើ .892  ំ 1.00  ៉ 1.00  ៊ .942  ់ 1.00  ៌ .958
+# ៍ .958  ៎ 1.00  ៏ .942  ័ .992  ៑ 1.00  ៓ .933   <- above, listed here
+# ុ .133  ូ .133  ួ .133  ្ .133  (== the ក-horn false-positive floor)  <- below
+# ា .025  ៀ .025  ោ .025  ៅ .083  េ .125  ឿ .117                       <- spacing
+# ែ 1.00  ៃ .933 are LEFT-SIDE spacing vowels drawn as េ plus a small tick; that
+# tick reads as "above" geometrically, but floating it turns ែ into េ, so they
+# are deliberately excluded.  ះ ៈ (POST_SIGNS) are right-side spacing signs whose
+# upper dot reads the same way, and are excluded for the same reason.
+ABOVE_VOWELS = frozenset(
+    {
+        0x17B7,  # ិ  I
+        0x17B8,  # ី  II
+        0x17B9,  # ឹ  Y
+        0x17BA,  # ឺ  YY
+        0x17BE,  # ើ  OE  (left-side េ plus a hook drawn above the base)
+    }
+)
+#: marks drawn *below* the base (subscript zone), plus the coeng stacker itself
+BELOW_MARKS = frozenset({0x17BB, 0x17BC, 0x17BD, COENG})  # ុ ូ ួ ្
+#: vowels that occupy their own advance to the left/right of the base
+SPACING_VOWELS = frozenset({0x17B6, 0x17BF, 0x17C0, 0x17C1, 0x17C2, 0x17C3, 0x17C4, 0x17C5})
+#: every mark that renders above the base and may legitimately be floated
+ABOVE_RENDERING_MARKS = ABOVE_VOWELS | ABOVE_SIGNS | REGISTER_SHIFTERS
+
 # --- digits, punctuation, symbols ------------------------------------------- #
 DIGIT_START, DIGIT_END = 0x17E0, 0x17E9  # ០ .. ៩
 LEK_ATTAK_START, LEK_ATTAK_END = 0x17F0, 0x17F9  # ៰ .. ៹ divination numerals
@@ -101,6 +141,21 @@ def is_dependent_vowel(cp: int) -> bool:
 
 def is_sign(cp: int) -> bool:
     return cp in ABOVE_SIGNS or cp in POST_SIGNS or cp in REGISTER_SHIFTERS
+
+
+def is_above_rendering_mark(cp: int) -> bool:
+    """True for a combining mark drawn *above* its base consonant.
+
+    False for below-base marks (ុ ូ ួ, coeng), for spacing vowels that take their
+    own advance (ា េ ែ ៃ ោ ៅ ៀ ឿ) and for the post-base signs (ះ ៈ).
+    See ``ABOVE_RENDERING_MARKS`` for the measurement behind the table.
+    """
+    return cp in ABOVE_RENDERING_MARKS
+
+
+def count_above_marks(text: str) -> int:
+    """How many above-rendering marks a grapheme cluster's source text carries."""
+    return sum(1 for ch in text if ord(ch) in ABOVE_RENDERING_MARKS)
 
 
 def is_digit(cp: int) -> bool:

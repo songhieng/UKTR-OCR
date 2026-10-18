@@ -31,7 +31,11 @@ from .ink import PenModel, get_ink_color, get_pen
 
 
 def _stroke_radius_alpha(
-    stroke: TrajectoryStroke, base_radius: float, pen: PenModel, cfg: RenderConfig
+    stroke: TrajectoryStroke,
+    base_radius: float,
+    pen: PenModel,
+    cfg: RenderConfig,
+    width_contrast: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     p = np.clip(stroke.pressure, 0.0, 1.0)
     wp = cfg.width_pressure_bias + cfg.width_pressure_gain * p
@@ -45,6 +49,28 @@ def _stroke_radius_alpha(
         vm = float(np.median(v[v > 0])) if np.any(v > 0) else 1.0
         radius = radius * (1.0 - pen.speed_thinning * np.clip(v / max(vm, 1e-9) - 1.0, -0.8, 0.8))
 
+    # Downstroke/upstroke contrast.  A hand pressing on the pull stroke and
+    # lightening on the push stroke is the strongest single cue separating adult
+    # handwriting from school printing: a monoline trace of a font skeleton reads
+    # as "carefully copied", however well the letters are shaped.  Unlike the nib
+    # term below this is *not* an ink property - it is the hand, so it applies to
+    # every pen (scaled by how much that pen can express it).
+    c = width_contrast * pen.direction_contrast * cfg.direction_width_gain
+    if c > 1e-3 and len(stroke.points) > 2:
+        d = np.gradient(stroke.points, axis=0)
+        n = np.linalg.norm(d, axis=1)
+        d = d / np.maximum(n, 1e-9)[:, None]
+        pull = np.radians(cfg.pull_angle_deg)
+        proj = d[:, 0] * np.cos(pull) + d[:, 1] * np.sin(pull)
+        # smooth along the stroke: the hand cannot change pressure per sample
+        k = max(3, int(len(proj) * 0.04) | 1)
+        ker = np.ones(k) / k
+        proj = np.convolve(np.pad(proj, (k // 2, k // 2), mode="edge"), ker, mode="valid")[: len(d)]
+        radius = radius * np.clip(1.0 + c * proj, 0.25, 2.5)
+        alpha_dir = np.clip(1.0 + c * cfg.direction_alpha_gain * proj, 0.4, 1.6)
+    else:
+        alpha_dir = 1.0
+
     if pen.nib_ratio < 1.0 and len(stroke.points) > 1:
         d = np.gradient(stroke.points, axis=0)
         ang = np.arctan2(d[:, 1], d[:, 0]) - np.radians(cfg.nib_angle_deg)
@@ -52,7 +78,7 @@ def _stroke_radius_alpha(
 
     ap = cfg.alpha_pressure_bias + cfg.alpha_pressure_gain * p
     ap = 1.0 + pen.alpha_pressure * (ap - 1.0)
-    alpha = np.clip(pen.alpha * ap, 0.0, 1.0)
+    alpha = np.clip(pen.alpha * ap * alpha_dir, 0.0, 1.0)
     return np.maximum(radius, 0.35), alpha
 
 
@@ -63,12 +89,13 @@ def _render_stroke(
     base_radius: float,
     pen: PenModel,
     cfg: RenderConfig,
+    width_contrast: float = 0.0,
 ) -> None:
     """Composite one stroke into ``canvas`` (float32 alpha, supersampled)."""
     pts = stroke.points * scale
     if len(pts) == 0:
         return
-    radius, alpha = _stroke_radius_alpha(stroke, base_radius, pen, cfg)
+    radius, alpha = _stroke_radius_alpha(stroke, base_radius, pen, cfg, width_contrast)
     radius = radius * scale
 
     H, W = canvas.shape
@@ -160,7 +187,7 @@ def render_ink_alpha(
     for s in traj.strokes:
         if len(s) == 0:
             continue
-        _render_stroke(canvas, s, ss, base_radius, pen, cfg)
+        _render_stroke(canvas, s, ss, base_radius, pen, cfg, style.width_contrast)
 
     if cfg.draw_pen_up and len(traj.strokes) > 1:
         for a, b in zip(traj.strokes[:-1], traj.strokes[1:]):

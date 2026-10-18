@@ -191,8 +191,13 @@ def cluster_skeleton(
     # quantise offsets so that near-identical placements share a cache entry
     sig = tuple(sorted((int(g), round(float(dx), 1), round(float(dy), 1)) for g, dx, dy in placements))
     key = (
-        "cluster_skeleton_v1",
-        font.key,
+        # v2: the font identity is now (stem, content hash).  MEASURED, v1 keyed
+        # on the bare stem, so fonts/Battambang-Regular.ttf (360 glyphs) and
+        # fonts/km/Battambang-Regular.ttf (302 glyphs) - different files - shared
+        # key a8874b6c0d2a5d91 and served each other's skeletons.  fonts/km/* are
+        # symlinks, so repointing one was invisible to the cache as well.
+        "cluster_skeleton_v2",
+        font.uid,
         tuple(sorted(font.variations.items())),
         font.upem,
         sig,
