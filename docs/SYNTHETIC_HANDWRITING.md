@@ -34,7 +34,8 @@ decorative fonts excluded by substring) with these UKTR changes:
 | Setting | Change | Reason |
 |---|---|---|
 | `fonts.paths` | `data/fonts` | where `scripts/fetch_fonts.py` puts them |
-| `fonts.weights` / `exclude` | + `KhmerOS_fasthand` 3.0, `KhmerOS_freehand` 2.5; exclude `muol` | our font set ships the KhmerOS handwriting faces; KhmerOS spells Moul "muol" |
+| `fonts.weights` | + `KhmerOS_fasthand` 3.0, `KhmerOS_freehand` 2.5; − Metal, Chenla, Siemreap | our font set ships the KhmerOS handwriting faces |
+| `fonts.exclude` | Moul/muol, Bayon, Dangrek, Bokor, Metal, Chrieng, Chenla, Siemreap, Angkor, Koulen, KohSantepheap-Black, Suwannaphum-Black (substring match) | per-font review: every font wrote the same lines with the same writers. These 18 faces come out doubled, spiky or broken because thinning follows their ornament (or are readable but flicked/cramped). Taprom, PreahVihear, OdorMeanChey, Content-Bold, Battambang-Bold and Suwannaphum-Bold were excluded by v3 but render cleanly, so they are back: 39 fonts in the pool |
 | `writer.local_jitter`, `local_elasticity`, `glyph_rotation`, `glyph_translation`, `glyph_scale_var`, `slant_variation`, `overshoot` | back to the earlier preset's wider ranges | with v3's ranges the Stage-1 model read the synthetic lines at 10% CER vs 28% on real handwriting with the same texts (it looked like neat print); these ranges give 18% and similar exact-line accuracy (37% vs 41%), image realism unchanged |
 | `dataset` | `data/raw/khmer_synth_hw`, degraded JPEG only, 1 style per text | Stage 2 needs images; halves disk and time |
 
