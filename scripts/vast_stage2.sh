@@ -12,17 +12,26 @@ CKPT=checkpoints/uktr_base_stage1_best.pt
 CONFIG=${CONFIG:-configs/stage2.yaml}
 W=${WORKERS:-$(nproc)}
 [ -f "$CKPT" ] || { echo "missing $CKPT - upload the Stage-1 checkpoint first"; exit 1; }
-pip install -q -r requirements.txt
+# the Python that has the GPU torch: images differ (python, python3, /venv/main, /opt/conda); PYTHON=... overrides
+PY=${PYTHON:-}
+if [ -z "$PY" ]; then
+  for c in python python3 /venv/main/bin/python /opt/conda/bin/python; do
+    if command -v "$c" >/dev/null 2>&1 && "$c" -c "import torch" >/dev/null 2>&1; then PY=$(command -v "$c"); break; fi
+  done
+fi
+[ -n "$PY" ] || { echo "no Python with torch found - run: PYTHON=/path/to/python bash scripts/vast_stage2.sh"; exit 1; }
+echo "using $PY ($("$PY" -c 'import torch; print("torch", torch.__version__, "cuda", torch.cuda.is_available())'))"
+"$PY" -m pip install -q -r requirements.txt
 
 # Stage-1 data: printed + scene replay, and the text source for synthetic handwriting
 if [ ! -f data/manifest.csv ]; then
-  python scripts/download_data.py
-  python scripts/prepare_data.py --workers "$W"
-  python scripts/build_manifest.py
+  "$PY" scripts/download_data.py
+  "$PY" scripts/prepare_data.py --workers "$W"
+  "$PY" scripts/build_manifest.py
 fi
 
 # Stage 2 must reuse the Stage-1 vocabulary exactly: write it from the checkpoint
-python - "$CKPT" <<'EOF'
+"$PY" - "$CKPT" <<'EOF'
 import sys, torch
 from src.tokenizer.kcc import KCCTokenizer
 ck = torch.load(sys.argv[1], map_location="cpu", weights_only=True)
@@ -31,23 +40,23 @@ print("vocab from checkpoint -> data/tokenizer/kcc_vocab.json")
 EOF
 
 # synthetic handwriting (--all: the preset's exclude list drops the decorative faces)
-python scripts/fetch_fonts.py --out data/fonts --all
+"$PY" scripts/fetch_fonts.py --out data/fonts --all
 if [ ! -f data/raw/khmer_synth_hw/labels.csv ]; then
-  python scripts/generate_handwriting.py --num-texts "${NUM_TEXTS:-100000}" --workers "$W"
+  "$PY" scripts/generate_handwriting.py --num-texts "${NUM_TEXTS:-100000}" --workers "$W"
 fi
 
 # real handwriting + Stage-2 manifest
-python scripts/download_data.py --config configs/stage2_data.yaml --datasets real_hw
-python scripts/prepare_data.py   --config configs/stage2_data.yaml --workers "$W"
-python scripts/build_manifest.py --config configs/stage2_data.yaml
-python scripts/build_vocab.py    --config configs/stage2_data.yaml --existing data/tokenizer/kcc_vocab.json
+"$PY" scripts/download_data.py --config configs/stage2_data.yaml --datasets real_hw
+"$PY" scripts/prepare_data.py   --config configs/stage2_data.yaml --workers "$W"
+"$PY" scripts/build_manifest.py --config configs/stage2_data.yaml
+"$PY" scripts/build_vocab.py    --config configs/stage2_data.yaml --existing data/tokenizer/kcc_vocab.json
 
-python -m pytest -q tests
-python scripts/preflight.py --config "$CONFIG" || {
+"$PY" -m pytest -q tests
+"$PY" scripts/preflight.py --config "$CONFIG" || {
   echo "preflight failed: see results/*/preflight.json (start training by hand if only the overfit check failed)"; exit 1; }
 
 # training runs inside tmux so it survives SSH disconnects; TensorBoard on port 6006
 NAME=$(basename "$CONFIG" .yaml)
-tmux new-session -d -s "$NAME" "python scripts/train.py --config $CONFIG 2>&1 | tee -a results/train_$NAME.log"
-tmux has-session -t tb 2>/dev/null || tmux new-session -d -s tb "tensorboard --logdir results --host 0.0.0.0 --port 6006"
+tmux new-session -d -s "$NAME" "$PY scripts/train.py --config $CONFIG 2>&1 | tee -a results/train_$NAME.log"
+tmux has-session -t tb 2>/dev/null || tmux new-session -d -s tb "$PY -m tensorboard.main --logdir results --host 0.0.0.0 --port 6006"
 echo "training started: tmux attach -t $NAME   |   TensorBoard: http://<host>:6006"
