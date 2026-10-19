@@ -1,0 +1,13 @@
+# Stage 2 ablation: real handwriting only (no khmer_synth_hw), to measure what the synthetic lines add.
+# Compare its real_hw test CER with stage2.yaml's best checkpoint (TR 16.1%) using the same eval script.
+base: stage2.yaml
+experiment: stage2_real_only
+paths:
+  out_dir: checkpoints/stage2_real_only
+  results_dir: results/stage2_real_only
+data:
+  adapt_sources: [real_hw]            # repeat {real_hw: 5} only lengthens the epoch (~1.1k steps); the mix stays 50/50 with replay
+  val_sources: [real_hw, khmer_printed, hiertext]
+train:
+  max_steps: 24000                    # stage2.yaml plateaued by ~24k; 6 LR cycles, ends at lr_min
+  eval_every: 1000                    # real-only may peak early; one eval costs ~15 s

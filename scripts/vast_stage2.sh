@@ -4,6 +4,7 @@
 #   2. bash scripts/vast_stage2.sh                              # data + preflight, then train in tmux
 #      CONFIG=configs/stage2_no_mafs.yaml bash scripts/vast_stage2.sh   # another variant (data is reused)
 #      NUM_TEXTS=100000 WORKERS=32 bash scripts/vast_stage2.sh          # synthetic texts / CPU workers
+#      SYNTH=0 CONFIG=configs/stage2_real_only.yaml bash scripts/vast_stage2.sh   # real-only ablation, no generation
 # Needs ~100 GB free disk (Stage-1 replay data ~80 GB, synthetic handwriting ~2 GB). Synthetic
 # generation is CPU-bound (~0.5 s per image per core): pick a box with many vCPUs.
 set -euo pipefail
@@ -43,10 +44,12 @@ KCCTokenizer.from_dict(ck["tokenizer"]).save("data/tokenizer/kcc_vocab.json")
 print("vocab from checkpoint -> data/tokenizer/kcc_vocab.json")
 EOF
 
-# synthetic handwriting (--all: the preset's exclude list drops the decorative faces)
-"$PY" scripts/fetch_fonts.py --out data/fonts --all || echo "some fonts failed to download - continuing with the rest"
-if [ ! -f data/raw/khmer_synth_hw/labels.csv ]; then
-  "$PY" scripts/generate_handwriting.py --num-texts "${NUM_TEXTS:-100000}" --workers "$W"
+# synthetic handwriting (--all: the preset's exclude list drops the decorative faces); SYNTH=0 skips it
+if [ "${SYNTH:-1}" = 1 ]; then
+  "$PY" scripts/fetch_fonts.py --out data/fonts --all || echo "some fonts failed to download - continuing with the rest"
+  if [ ! -f data/raw/khmer_synth_hw/labels.csv ]; then
+    "$PY" scripts/generate_handwriting.py --num-texts "${NUM_TEXTS:-100000}" --workers "$W"
+  fi
 fi
 
 # real handwriting + Stage-2 manifest
