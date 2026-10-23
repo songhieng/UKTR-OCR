@@ -153,6 +153,27 @@ def test_pad_margins_keeps_text_and_widens_line(tmp_path):
     assert x.shape[-1] == w > 100
 
 
+def test_neighbor_lines_keep_text_and_label(tmp_path):
+    import pandas as pd
+    from PIL import Image
+    from src.datasets.ocr_dataset import LineDataset
+    a = np.full((32, 100), 200, np.uint8)
+    a[8:24, 10:90] = 0                                  # this line's "ink"
+    b = np.full((40, 80), 180, np.uint8)
+    b[:, 20:60] = 30                                    # donor line: full-height strokes
+    Image.fromarray(a).save(tmp_path / "a.png"); Image.fromarray(b).save(tmp_path / "b.png")
+    df = pd.DataFrame({"image_path": ["a.png", "b.png"], "transcription": ["ក", "ការ"], "width": [100, 80],
+                       "height": [32, 40], "source_dataset": ["s", "s"], "modality": ["handwritten"] * 2})
+    ds = LineDataset(df, tmp_path, TOK, augment=True, neighbor_p=1.0)
+    ds.aug, ds.hw_idx = [(1.0, lambda im: im)], np.array([1])
+    out = np.asarray(ds._neighbors(Image.fromarray(a)))
+    assert out.shape[0] > 32 and out.shape[1] == 100
+    top = next(r for r in range(out.shape[0]) if (out[r:r + 32] == a).all())
+    assert (out[:top] < 100).any() or (out[top + 32:] < 100).any()   # donor strokes in the bands
+    assert out.max() <= 200                                         # donor paper matched to ours
+    x, w, y, *_ = ds[0]
+    assert x.shape[-2] == 32 and w < 100 and (y == ds.label(0)).all()
+
 def test_greedy_decode_respects_per_sample_cap():
     torch.manual_seed(0)
     m = UKTRBase(SMALL).eval()

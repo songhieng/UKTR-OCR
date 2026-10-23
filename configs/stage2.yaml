@@ -19,6 +19,7 @@ data:
   repeat: {real_hw: 5}                # 3.5k real train lines vs ~96k synthetic: 5x makes real ~16% of handwriting
   val_sources: [real_hw, khmer_synth_hw, khmer_printed, hiertext]
   max_val_per_source: 2000
+  neighbor_p: 0.3                     # handwritten train lines: paste strokes of another line above/below
 
 mafs:
   enabled: true

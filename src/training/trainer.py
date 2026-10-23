@@ -160,7 +160,7 @@ def build_datasets(cfg, tok):
         tr_df = tr_df[tr_df.handwritten.astype(str).str.lower() != "true"].reset_index(drop=True)
     va_df = load_manifest(resolve(p["manifest"]), ["val"], d.get("val_sources"),
                           d.get("max_val_per_source"), cfg["seed"])
-    train = LineDataset(tr_df, augment=d.get("augment", False), **common)
+    train = LineDataset(tr_df, augment=d.get("augment", False), neighbor_p=d.get("neighbor_p", 0.0), **common)
     val = LineDataset(va_df, augment=False, filter_infeasible=False, **common)
     return train, val, tr_df, va_df
 

@@ -56,12 +56,15 @@ def _downup(im):
     return im.resize((max(1, im.width // 2), max(1, im.height // 2))).resize(im.size)
 
 
+def _edge_fill(a):
+    """Paper colour of an image array: median of its left/right 2-pixel edges (scalar or per channel)."""
+    return np.median(np.concatenate([a[:, :2], a[:, -2:]], axis=1).reshape(-1, *a.shape[2:]), axis=0)
+
+
 def _pad_margins(im):
     """Blank paper left/right of the text, as loose real crops have: teaches the decoder to emit EOS
     over empty space instead of hallucinating (Stage-1 crops are tight). Fill = median edge colour."""
-    a = np.asarray(im)
-    edge = np.concatenate([a[:, :2], a[:, -2:]], axis=1).reshape(-1, *a.shape[2:])
-    fill = np.median(edge, axis=0).astype(int)
+    fill = _edge_fill(np.asarray(im)).astype(int)
     fill = int(fill) if fill.ndim == 0 else tuple(fill.tolist())
     left, right = int(random.uniform(0, 0.5) * im.height), int(random.uniform(0.5, 4.0) * im.height)
     out = Image.new(im.mode, (im.width + left + right, im.height), fill)
@@ -72,9 +75,9 @@ def _pad_margins(im):
 class LineDataset(Dataset):
     def __init__(self, df: pd.DataFrame, data_root, tokenizer: KCCTokenizer, img_height=32,
                  min_width=16, max_width=1600, in_channels=1, augment=False, max_label_len=254,
-                 feat_stride=4, filter_infeasible=True, modalities=None):
+                 feat_stride=4, filter_infeasible=True, modalities=None, neighbor_p=0.0):
         self.root = Path(data_root)
-        self.tok, self.h, self.c, self.augment = tokenizer, img_height, in_channels, augment
+        self.tok, self.h, self.c, self.augment, self.neighbor_p = tokenizer, img_height, in_channels, augment, neighbor_p
         self.max_width = max_width
         tw = target_width(df.width.values, df.height.values, img_height, min_width, max_width)
         ids = [np.asarray(tokenizer.encode(t, normalized=True), dtype=np.int32) for t in df.transcription]
@@ -96,6 +99,8 @@ class LineDataset(Dataset):
         mod = {m: i for i, m in enumerate(modalities or [])}
         col = kept.modality.tolist() if "modality" in kept else [""] * len(kept)
         self.modality_ids = np.array([mod.get(m, -1) for m in col], dtype=np.int64)
+        self.hw = np.array([m == "handwritten" for m in col], dtype=bool)
+        self.hw_idx = np.flatnonzero(self.hw)  # neighbour-line donors
         self.df_index = np.flatnonzero(keep)    # row in the source dataframe for each sample
         self.aug = self._build_aug() if augment else None
 
@@ -111,18 +116,45 @@ class LineDataset(Dataset):
         return [(0.3, _affine), (0.4, T.ColorJitter(brightness=0.35, contrast=0.35)), (0.15, _blur), (0.15, _downup),
                 (0.3, _pad_margins)]
 
-    def load_image(self, path: Path, width: int) -> torch.Tensor:
-        im = Image.open(path).convert("L" if self.c == 1 else "RGB")
+    def _open(self, path):
+        return Image.open(path).convert("L" if self.c == 1 else "RGB")
+
+    def _neighbors(self, im):
+        """Strokes of the line above/below cut into the crop, as loose real handwriting crops have, so
+        the model learns to ignore them (label unchanged). Donor = random handwritten training line at
+        this line's height: its bottom 10-35% goes above, its top 10-35% below (or both)."""
+        h, a = im.height, np.asarray(im, dtype=np.float32)
+        fill, r = _edge_fill(a), random.random()
+        bands = []
+        for above in [True, False] if r < 0.2 else [r < 0.6]:
+            n = self._open(self.root / self.paths[random.choice(self.hw_idx)].decode())
+            n = np.asarray(n.resize((max(1, round(n.width * h / n.height)), h), Image.BILINEAR), dtype=np.float32)
+            n = n * (fill / np.maximum(_edge_fill(n), 1))         # match its paper to ours, ink stays dark
+            s = max(1, int(random.uniform(0.1, 0.35) * h))
+            band = np.broadcast_to(fill, (s, *a.shape[1:])).copy()
+            x = random.randint(-n.shape[1] // 2, a.shape[1] // 2)  # random offset; donor width varies too
+            src = n[h - s:] if above else n[:s]
+            lo, hi = max(0, x), min(a.shape[1], x + n.shape[1])
+            band[:, lo:hi] = np.minimum(band[:, lo:hi], src[:, lo - x:hi - x])
+            bands.append((above, band))
+        out = [b for up, b in bands if up] + [a] + [b for up, b in bands if not up]
+        return Image.fromarray(np.clip(np.concatenate(out), 0, 255).astype(np.uint8), im.mode)
+
+    def load_image(self, path: Path, width: int, hw=False) -> torch.Tensor:
+        im = self._open(path)
         if self.aug:
-            w0 = im.width
+            w0, h0 = im.size
+            if hw and self.neighbor_p and random.random() < self.neighbor_p:
+                im = self._neighbors(im)
             for p, f in self.aug:
                 if random.random() < p:
                     im = f(im)
-            width = min(self.max_width, round(width * im.width / w0))   # margins widen the line
+            # margins widen the line; neighbour bands make it taller (keep aspect, text shrinks)
+            width = min(self.max_width, max(1, round(width * im.width / w0 * h0 / im.height)))
         return to_tensor(im, width, self.h)
 
     def __getitem__(self, i):
-        x = self.load_image(self.root / self.paths[i].decode(), self.widths[i])
+        x = self.load_image(self.root / self.paths[i].decode(), self.widths[i], self.hw[i])
         return x, int(x.shape[-1]), self.label(i), i, int(self.modality_ids[i])
 
 
