@@ -40,7 +40,7 @@ import numpy as np
 from ..config import DeformationConfig
 from ..strokes.planner import Stroke
 from ..text.khmer_chars import count_above_marks
-from ..utils.geometry import make_affine, tangents, transform_affine
+from ..utils.geometry import cumulative_length, make_affine, tangents, transform_affine
 from ..utils.noise import smooth_noise_1d, smooth_noise_2d, smooth_noise_along
 from ..utils.rng import make_rng
 from .style import WriterStyle
@@ -108,6 +108,49 @@ def _extend_endpoints(pts: np.ndarray, start: float, end: float) -> np.ndarray:
         out = np.vstack([pts[0] - t0 / n0 * start, out])
     if n1 > 1e-9 and end != 0:
         out = np.vstack([out, pts[-1] + t1 / n1 * end])
+    return out
+
+
+def _trim_endpoints(pts: np.ndarray, cut: float) -> np.ndarray:
+    """Shorten both ends by ``cut`` px of arc; short strokes (dots, small marks) are kept."""
+    s = cumulative_length(pts)
+    if cut <= 0 or s[-1] <= 4.0 * cut:
+        return pts
+    return pts[(s >= cut) & (s <= s[-1] - cut)]
+
+
+def _scale_curls(pts: np.ndarray, scale: float, em_px: float, win_em: float = 0.3, min_turn: float = 2.4) -> np.ndarray:
+    """Grow (>1) or shrink (<1) the tight curls and small loops of one stroke.
+
+    A curl is where the *signed* tangent turning over ``win_em`` of arc exceeds
+    ``min_turn`` radians: open hooks (the heads of ក ម ប) as well as closed
+    loops, while letter bowls and wiggles turn too slowly or cancel out.  Each
+    curl is scaled about its centroid with a sin^2 taper, so its two ends stay
+    put and the stroke stays connected.
+    """
+    if len(pts) < 8:
+        return pts
+    s = cumulative_length(pts)
+    d = np.diff(pts, axis=0)
+    ang = np.arctan2(d[:, 1], d[:, 0])
+    turn = np.concatenate([[0.0], np.cumsum(np.angle(np.exp(1j * np.diff(ang))))])  # at pts[1:-1]
+    si, h = s[1:-1], 0.5 * win_em * em_px
+    lo = np.searchsorted(si, si - h)
+    hi = np.clip(np.searchsorted(si, si + h, side="right") - 1, 0, len(si) - 1)
+    curly = np.abs(turn[hi] - turn[lo]) > min_turn
+    if not curly.any():
+        return pts
+    out = pts.astype(np.float64, copy=True)
+    edges = np.flatnonzero(np.diff(np.concatenate([[0], curly.astype(int), [0]])))
+    for a, b in zip(edges[::2], edges[1::2]):
+        # widen the run by half a window each side so the whole curl moves
+        i = int(np.searchsorted(s, s[a + 1] - h))
+        j = int(min(np.searchsorted(s, s[b] + h), len(pts) - 1))
+        if j - i < 3:
+            continue
+        seg = out[i : j + 1]
+        u = (s[i : j + 1] - s[i]) / max(s[j] - s[i], 1e-9)
+        out[i : j + 1] = seg + (seg - seg.mean(axis=0)) * (scale - 1.0) * (np.sin(np.pi * u) ** 2)[:, None]
     return out
 
 
@@ -365,6 +408,7 @@ def deform_strokes(
     # Also allograph-locked: overshoot and bending are part of how this writer
     # draws this letter, not per-occurrence noise.
     if cfg.stroke_level:
+        end_bias = style.stroke_end_bias * em_px
         for cluster, idx in by_cluster.items():
             srng = allograph_rng(cluster)
             for i in idx:
@@ -372,12 +416,18 @@ def deform_strokes(
                 p = s.points
                 if len(p) < 3:
                     continue
-                if style.overshoot > 0:
-                    a = float(srng.normal(0.0, style.overshoot * em_px))
-                    b = float(srng.normal(0.0, style.overshoot * em_px))
+                if style.loop_scale != 1.0:
+                    p = _scale_curls(p, style.loop_scale, em_px)
+                if style.overshoot > 0 or end_bias > 0:
+                    a = b = max(end_bias, 0.0)
+                    if style.overshoot > 0:
+                        a += float(srng.normal(0.0, style.overshoot * em_px))
+                        b += float(srng.normal(0.0, style.overshoot * em_px))
                     p = _extend_endpoints(
                         p, np.clip(a, -max_disp, max_disp), np.clip(b, -max_disp, max_disp)
                     )
+                if end_bias < 0:
+                    p = _trim_endpoints(p, -end_bias)
                 if style.local_elasticity > 0 and len(p) > 4:
                     seg = np.concatenate(
                         [[0.0], np.cumsum(np.linalg.norm(np.diff(p, axis=0), axis=1))]
@@ -395,6 +445,14 @@ def deform_strokes(
     # ---------------- point level ---------------- #
     if cfg.point_level:
         bb = _bbox_of(strokes)
+        if style.glyph_warp > 0:
+            # letter-scale warp on the shared stream: unlike the allograph-locked
+            # levels above, each occurrence of a letter is bent afresh
+            field = _VectorField(
+                rng, bb, scale_px=style.glyph_warp_scale * em_px, amplitude=style.glyph_warp * em_px
+            )
+            for s in strokes:
+                s.points = s.points + np.clip(field.sample(s.points), -max_disp, max_disp)
         if style.local_jitter > 0:
             field = _VectorField(
                 rng, bb, scale_px=cfg.noise_scale_px, amplitude=style.local_jitter * em_px

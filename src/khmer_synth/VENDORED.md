@@ -28,6 +28,12 @@ Re-apply these when syncing again; `tests/test_synth_spacing.py` fails if the tw
 * `writer/pressure.py`, `writer/timing.py`: fluent writers land quickly and lift while still moving
   (shorter entry ramp, longer exit ramp, lower end-pressure floor, speed kept at stroke ends), so fast
   strokes end in tapered tails instead of round blobs.
+* `writer/deformation.py`, `writer/style.py`, `config.py` (letter-shape variety; all off by default,
+  writers and samples bit-identical when off; `tests/test_synth_shapes.py`): new `writer` keys
+  `glyph_warp` / `glyph_warp_scale` (per-occurrence smooth displacement field at letter scale, on the
+  shared sample stream, so each copy of a letter is bent differently), `loop_scale` (per-writer size of
+  tight curls/loops, detected by windowed tangent turning, ends fixed) and `stroke_end_bias` (per-writer
+  stroke-end lengthening / trimming, em). The new style fields are drawn last in `sample_writer`.
 
 Earlier local changes now covered upstream and dropped: the row-profile overprint pass (upstream
 `layout.min_cluster_gap_em` + `writer.spacing_tight_max_frac`), writer font weights

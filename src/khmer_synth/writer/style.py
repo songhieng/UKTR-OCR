@@ -77,6 +77,12 @@ class WriterStyle:
     mark_scale_var: float = 0.0
     below_stretch: float = 0.0
 
+    # --- letter-shape variety (0 / 1 = off) --- #
+    glyph_warp: float = 0.0
+    glyph_warp_scale: float = 0.3
+    loop_scale: float = 1.0
+    stroke_end_bias: float = 0.0
+
     # --- pen dynamics --- #
     stroke_smoothness: float = 1.0
     stroke_width: float = 0.05
@@ -267,6 +273,12 @@ def sample_writer(
             chosen = rng.choice(font_keys, size=k, replace=False)
         style.preferred_fonts = [str(x) for x in chosen]
         style.font_loyalty = float(rng.uniform(0.6, 0.95))
+    # drawn last, and ``uniform`` draws nothing for a zero-width range, so writers
+    # are bit-identical to before while these stay at their defaults
+    style.glyph_warp = uniform(rng, cfg.glyph_warp)
+    style.glyph_warp_scale = uniform(rng, cfg.glyph_warp_scale)
+    style.loop_scale = uniform(rng, cfg.loop_scale)
+    style.stroke_end_bias = uniform(rng, cfg.stroke_end_bias)
     return style
 
 

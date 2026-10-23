@@ -190,6 +190,22 @@
     "connect_max_gap": [
       0.3,
       0.8
+    ],
+    "glyph_warp": [
+      0.03,
+      0.07
+    ],
+    "glyph_warp_scale": [
+      0.25,
+      0.4
+    ],
+    "loop_scale": [
+      0.75,
+      1.45
+    ],
+    "stroke_end_bias": [
+      -0.03,
+      0.05
     ]
   },
   "render": {

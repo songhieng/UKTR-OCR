@@ -351,6 +351,20 @@ class WriterSamplingConfig:
     #: fractional vertical stretch of everything below the baseline zone (coeng,
     #: below-vowels): real hands hang subscripts deeper than a typeface does
     below_stretch: Range = (0.0, 0.0)
+
+    # --- letter-shape variety (UKTR local; all off by default) --- #
+    #: per-occurrence letter warp: amplitude (em) of a smooth displacement field
+    #: whose correlation length (``glyph_warp_scale``, em) is below a letter's
+    #: width, so every copy of every letter is bent a little differently.  A
+    #: function of position, so junctions and attached marks move together.
+    glyph_warp: Range = (0.0, 0.0)
+    glyph_warp_scale: Range = (0.3, 0.3)
+    #: per-writer size of tight curls / small loops relative to the font (1 =
+    #: font); curls found by tangent turning, their ends stay put
+    loop_scale: Range = (1.0, 1.0)
+    #: per-writer stroke-end bias, em: > 0 lengthens every stroke end along its
+    #: tangent, < 0 trims it (strokes shorter than 4x the trim are left alone)
+    stroke_end_bias: Range = (0.0, 0.0)
     #: probability the writer uses a given pen model
     pen_models: dict[str, float] = field(
         default_factory=lambda: {
