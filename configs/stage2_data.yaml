@@ -30,3 +30,16 @@ sources:
     split_map: {trainset: train, valset: val, testset: test}
     modality: handwritten
     license: "HF card metadata: MIT. No writer ids, so val/test writers may also appear in train."
+
+  # More REAL handwriting: phone photos of lined/grid notebook paper. The repo also re-hosts ~90% of
+  # SoyVitou (its test split included) - those copies are dropped, ~3.6k new lines remain.
+  # No official split: val/test by text hash.
+  kiteaether:
+    hf_repo: KiteAether/c_khmer_gemma_ocr_train
+    revision: f9c236a6312ba90be08708184054eb5c07fc7a37
+    files: ["data/train-*.parquet"]
+    modality: handwritten
+    drop_duplicates_of: [real_hw]
+    val_fraction: 0.08
+    test_fraction: 0.08
+    license: "None stated on the HF card - ask the author before redistributing a model trained on it."

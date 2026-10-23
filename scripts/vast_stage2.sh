@@ -5,6 +5,7 @@
 #      CONFIG=configs/stage2_no_mafs.yaml bash scripts/vast_stage2.sh   # another variant (data is reused)
 #      NUM_TEXTS=100000 WORKERS=32 bash scripts/vast_stage2.sh          # synthetic texts / CPU workers
 #      SYNTH=0 CONFIG=configs/stage2_real_only.yaml bash scripts/vast_stage2.sh   # real-only ablation, no generation
+#      NUM_TEXTS=5000 CONFIG=configs/stage2_kite.yaml bash scripts/vast_stage2.sh # round 2: + KiteAether, small synthetic share
 # Needs ~100 GB free disk (Stage-1 replay data ~80 GB, synthetic handwriting ~2 GB). Synthetic
 # generation is CPU-bound (~0.5 s per image per core): pick a box with many vCPUs.
 set -euo pipefail
@@ -53,7 +54,7 @@ if [ "${SYNTH:-1}" = 1 ]; then
 fi
 
 # real handwriting + Stage-2 manifest
-"$PY" scripts/download_data.py --config configs/stage2_data.yaml --datasets real_hw
+"$PY" scripts/download_data.py --config configs/stage2_data.yaml --datasets real_hw kiteaether
 "$PY" scripts/prepare_data.py   --config configs/stage2_data.yaml --workers "$W"
 "$PY" scripts/build_manifest.py --config configs/stage2_data.yaml
 "$PY" scripts/build_vocab.py    --config configs/stage2_data.yaml --existing data/tokenizer/kcc_vocab.json

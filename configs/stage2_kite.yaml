@@ -1,0 +1,16 @@
+# Stage 2 round 2: real handwriting from two sources (SoyVitou + KiteAether phone photos) plus a SMALL
+# synthetic share (~25% of handwriting lines; generate it with NUM_TEXTS=5000 and the new letter-shape
+# features) and neighbour-line augmentation (data.neighbor_p from stage2.yaml).
+# Compare with stage2.yaml (real_hw test TR 16.1%) and stage2_real_only.yaml (13.8%).
+base: stage2.yaml
+experiment: stage2_kite
+paths:
+  out_dir: checkpoints/stage2_kite
+  results_dir: results/stage2_kite
+data:
+  adapt_sources: [real_hw, kiteaether, khmer_synth_hw]
+  repeat: {real_hw: 2, kiteaether: 2}   # ~3.5k + ~3k real lines x2 vs ~4.8k synthetic -> synthetic ~25%
+  val_sources: [real_hw, kiteaether, khmer_synth_hw, khmer_printed, hiertext]
+train:
+  max_steps: 24000
+  eval_every: 1000

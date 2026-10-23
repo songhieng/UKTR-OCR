@@ -113,6 +113,16 @@ def main():
                       for s, hw in zip(df.source_dataset, df.handwritten)]
     df["split"] = [assign_split(r, cfg["sources"][r.source_dataset]) for r in df.itertuples()]
 
+    # sources that re-host another source's lines (KiteAether contains most of SoyVitou, test split included):
+    # drop their copies first, else the dedup below keeps the train copy and removes the original's eval row
+    for s, c in cfg["sources"].items():
+        if c.get("drop_duplicates_of"):
+            ref = df[df.source_dataset.isin(c["drop_duplicates_of"])]
+            m = (df.source_dataset == s) & (df.md5.isin(ref.md5) | df.dhash.isin(ref.dhash)
+                                            | df.transcription.isin(ref.transcription))
+            report["dropped"][f"{s}_duplicate_of_{'+'.join(c['drop_duplicates_of'])}"] = int(m.sum())
+            df = df[~m]
+
     # ---- de-duplicate: train copies first so eval copies are the ones removed (no leakage)
     df["_so"] = df.split.map(SPLIT_ORDER)
     df = df.sort_values(["_so", "_prio", "image_path"], kind="stable")
