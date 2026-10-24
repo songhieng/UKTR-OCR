@@ -16,7 +16,8 @@ from src.models.checkpoint import load_stage1  # noqa: E402
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--checkpoint", required=True)
-    ap.add_argument("--decoder", choices=["ctc", "tr", "both"], default="both")
+    ap.add_argument("--decoder", choices=["ctc", "tr", "joint", "all"], default="all",
+                    help="joint = the better of the CTC and TR reads under both heads (most accurate)")
     ap.add_argument("images", nargs="+")
     a = ap.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
@@ -24,11 +25,13 @@ if __name__ == "__main__":
     model, tok, ck = load_stage1(a.checkpoint, device=dev)
     model.eval()
     d, c = ck["train_config"]["data"], ck["model_config"]["in_channels"]
-    decs = ("ctc", "tr") if a.decoder == "both" else (a.decoder,)
+    decs = ("ctc", "tr", "joint") if a.decoder == "all" else (a.decoder,)
     for p in a.images:
         im = Image.open(p).convert("L" if c == 1 else "RGB")
         tw = int(target_width(im.width, im.height, d["img_height"], d["min_width"], d["max_width"]))
         x = to_tensor(im, tw, d["img_height"])[None].to(dev)
         out = model.recognize(x, torch.tensor([tw], device=dev), tok.bos_id, tok.eos_id, decoders=decs)
-        res = {k: (tok.decode_ctc(v[0]) if k == "ctc" else tok.decode(v[0])) for k, v in out.items()}
+        res = {k: (tok.decode_ctc(out[k][0]) if k == "ctc" else tok.decode(out[k][0])) for k in decs}
+        if "route_probs" in out:  # Stage-2 MAFS modality routing
+            res["route"] = " ".join(f"{p:.2f}" for p in out["route_probs"][0])
         print(p, "\t".join(f"{k}: {v}" for k, v in res.items()))

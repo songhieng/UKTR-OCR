@@ -157,13 +157,17 @@ class UKTRBase(nn.Module):
     # ---- inference ----------------------------------------------------------------
     @torch.no_grad()
     def recognize(self, images, widths, bos_id, eos_id, max_len=None, decoders=("ctc", "tr")):
-        """Greedy decoding. Returns dict of id lists per decoder."""
+        """Greedy decoding. Returns dict of id lists per decoder. "joint" (needs both reads) keeps whichever
+        of the CTC and TR reads scores better under both heads, 0.5 CTC NLL + 0.5 TR NLL: when they disagree
+        one is usually clearly wrong, and this picks the right one more often than either head alone."""
         G, G1d, col_mask, feat_w = self.encode(images, widths)
         H, U1d, aux = self.select_features(G, G1d, col_mask)
         out = {}
         if "route_logits" in aux:
             out["route_probs"] = aux["route_logits"].float().softmax(-1).tolist()
         best = self.ctc_logits(U1d).argmax(-1)
+        if "joint" in decoders:
+            decoders = (*decoders, "ctc", "tr")
         if "ctc" in decoders:
             out["ctc"] = [best[b, :feat_w[b]].tolist() for b in range(best.shape[0])]
         if "tr" in decoders:
@@ -174,7 +178,33 @@ class UKTRBase(nn.Module):
             valid = torch.arange(best.shape[1], device=best.device)[None] < feat_w[:, None]
             cap = 2 * ((best != 0) & new_tok & valid).sum(1) + 10
             out["tr"] = self.greedy_decode(H, col_mask, bos_id, eos_id, max_len or self.cfg["max_dec_len"], cap)
+        if "joint" in decoders:
+            c_ids = [[i for j, i in enumerate(p) if i != 0 and (j == 0 or i != p[j - 1])] for p in out["ctc"]]
+            t_ids = [t[:t.index(eos_id)] if eos_id in t else t for t in out["tr"]]
+            sc = self.joint_nll(H, col_mask, U1d, feat_w, c_ids, bos_id, eos_id).tolist()
+            st = self.joint_nll(H, col_mask, U1d, feat_w, t_ids, bos_id, eos_id).tolist()
+            out["joint"] = [c if a <= b else t for c, t, a, b in zip(c_ids, t_ids, sc, st)]
         return out
+
+    @torch.no_grad()
+    def joint_nll(self, H, col_mask, U1d, feat_w, cands, bos_id, eos_id, ctc_weight=0.5):
+        """ctc_weight * CTC NLL + (1 - ctc_weight) * teacher-forced TR NLL of one label-id list per sample
+        (inf when the CTC alignment is impossible, so such a candidate never wins)."""
+        dev, n = H.device, len(cands)
+        tl = torch.tensor([len(c) for c in cands], device=dev)
+        flat = torch.tensor([i for c in cands for i in c], dtype=torch.long, device=dev)
+        logp = self.ctc_logits(U1d).float().log_softmax(-1).transpose(0, 1)
+        ctc = F.ctc_loss(logp, flat, feat_w, tl, blank=0, reduction="none")
+        L = int(tl.max()) + 1
+        tin = torch.full((n, L), eos_id, dtype=torch.long, device=dev)
+        tout = tin.clone()
+        for b, c in enumerate(cands):
+            tin[b, :len(c) + 1] = torch.tensor([bos_id] + c, device=dev)
+            tout[b, :len(c) + 1] = torch.tensor(c + [eos_id], device=dev)
+        pad = torch.arange(L, device=dev)[None] > tl[:, None]
+        lp = self.decode_logits(H, col_mask, tin, pad).float().log_softmax(-1)
+        tr = -lp.gather(-1, tout[..., None])[..., 0].masked_fill(pad, 0).sum(1)
+        return ctc_weight * ctc + (1 - ctc_weight) * tr
 
     @torch.no_grad()
     def greedy_decode(self, H, col_mask, bos_id, eos_id, max_len, cap=None):

@@ -98,7 +98,7 @@ def main():
         m = {k.replace("all/", ""): v for k, v in m.items()}
         m["seconds"] = round(time.time() - t0, 1)
         report["groups"][f"{src}/{split}"] = m
-        print(f"{src}/{split}: n={m['ctc_n']} CER ctc {m['ctc_cer']:.4f} tr {m['tr_cer']:.4f} "
+        print(f"{src}/{split}: n={m['ctc_n']} CER ctc {m['ctc_cer']:.4f} tr {m['tr_cer']:.4f} joint {m['joint_cer']:.4f} "
               f"KCC-ER ctc {m['ctc_kcc_er']:.4f} tr {m['tr_kcc_er']:.4f} line-acc tr {m['tr_line_acc']:.4f}"
               + (f" route-acc {m['route_acc']:.3f}" if "route_acc" in m else ""))
         for i in rng.sample(range(len(ds)), min(a.examples, len(ds))):
@@ -107,7 +107,7 @@ def main():
             shutil.copy(p, dst)
             ref = refs[i]
             cells = [f'<img src="examples/{dst.name}" style="max-height:48px">', html.escape(ref)]
-            for dec in ("ctc", "tr"):
+            for dec in ("ctc", "tr", "joint"):
                 cells.append(f"{html.escape(preds[dec][i])}<br><small>CER {sample_cer(preds[dec][i], ref):.3f}</small>")
             rows_html.append(f"<tr><td>{src}/{split}</td>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
         if "latency" not in report and len(ds):
@@ -119,7 +119,7 @@ def main():
     (out_dir / "examples.html").write_text(
         "<!doctype html><meta charset='utf-8'><title>UKTR Stage-1 examples</title>"
         "<style>body{font-family:'Khmer OS','Noto Sans Khmer',sans-serif}td{border:1px solid #ccc;padding:4px}</style>"
-        "<table><tr><th>set</th><th>image</th><th>ground truth</th><th>CTC</th><th>Transformer</th></tr>"
+        "<table><tr><th>set</th><th>image</th><th>ground truth</th><th>CTC</th><th>Transformer</th><th>Joint</th></tr>"
         + "\n".join(rows_html) + "</table>", encoding="utf-8")
     L = ["# Stage-1 evaluation", "", f"checkpoint `{a.checkpoint}` (step {report['global_step']}), "
          f"device {report['device']}", "",

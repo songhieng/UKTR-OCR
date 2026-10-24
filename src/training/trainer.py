@@ -72,7 +72,7 @@ def evaluate(model, loader, tok, refs_by_index, dtype=None, max_len=None, source
     model.eval()
     dev = next(model.parameters()).device
     tot = {"loss": 0.0, "ctc": 0.0, "ce": 0.0, "route": 0.0, "n": 0}
-    preds = {"ctc": {}, "tr": {}}
+    preds = {"ctc": {}, "tr": {}, "joint": {}}
     route = {}                                                     # index -> (probs, modality id)
     for batch in loader:
         loss, lc, le, lr_ = compute_losses(model, batch, tok, dtype, route_w=route_w)
@@ -82,9 +82,9 @@ def evaluate(model, loader, tok, refs_by_index, dtype=None, max_len=None, source
         tot["n"] += n
         with torch.autocast("cuda", dtype=dtype, enabled=dtype is not None):
             out = model.recognize(batch["images"].to(dev), batch["widths"].to(dev), tok.bos_id, tok.eos_id,
-                                  max_len=max_len)
-        for i, c, t in zip(batch["index"].tolist(), out["ctc"], out["tr"]):
-            preds["ctc"][i], preds["tr"][i] = tok.decode_ctc(c), tok.decode(t)
+                                  max_len=max_len, decoders=("ctc", "tr", "joint"))
+        for i, c, t, j in zip(batch["index"].tolist(), out["ctc"], out["tr"], out["joint"]):
+            preds["ctc"][i], preds["tr"][i], preds["joint"][i] = tok.decode_ctc(c), tok.decode(t), tok.decode(j)
         for i, pr, m in zip(batch["index"].tolist(), out.get("route_probs", []), batch["modality"].tolist()):
             route[i] = (pr, m)
     model.train(was_training)
@@ -100,10 +100,10 @@ def evaluate(model, loader, tok, refs_by_index, dtype=None, max_len=None, source
             groups.setdefault(sources[i], []).append(i)
     for g, ii in groups.items():
         refs = [refs_by_index[i] for i in ii]
-        for dec in ("ctc", "tr"):
+        for dec in ("ctc", "tr", "joint"):
             for k, v in summarize([preds[dec][i] for i in ii], refs).items():
                 res[f"{g}/{dec}_{k}"] = v
-    res["cer_ctc"], res["cer_tr"] = res["all/ctc_cer"], res["all/tr_cer"]
+    res["cer_ctc"], res["cer_tr"], res["cer_joint"] = res["all/ctc_cer"], res["all/tr_cer"], res["all/joint_cer"]
     res["cer_mean"] = (res["cer_ctc"] + res["cer_tr"]) / 2
     return res, preds
 
@@ -289,7 +289,7 @@ def train(cfg: dict, resume: str | None = None) -> dict:
                 tb.add_scalar(f"val/{k}", v, step)
         tb.flush()
         print(f"[eval step {step}] loss {metrics['val_loss']:.4f} CER ctc {metrics['cer_ctc']:.4f} "
-              f"tr {metrics['cer_tr']:.4f} {best_key} {metrics[best_key]:.4f}"
+              f"tr {metrics['cer_tr']:.4f} joint {metrics['cer_joint']:.4f} {best_key} {metrics[best_key]:.4f}"
               + (f" route_acc {metrics['route_acc']:.3f}" if "route_acc" in metrics else ""))
         if metrics[best_key] < best:
             best = metrics[best_key]

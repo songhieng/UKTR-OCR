@@ -183,3 +183,25 @@ def test_greedy_decode_respects_per_sample_cap():
         out = m.greedy_decode(G, cm, TOK.bos_id, TOK.eos_id, 32, cap=torch.tensor([2, 5, 32]))
     for seq, c in zip(out, [2, 5]):
         assert all(t == TOK.eos_id for t in seq[c:])
+
+
+def test_joint_rescoring_scores_and_picks_one_of_the_reads():
+    torch.manual_seed(0)
+    m = UKTRBase(SMALL).eval()
+    b = batch()
+    with torch.no_grad():
+        G, G1d, cm, fw = m.encode(b["images"], b["widths"])
+        H, U1d, _ = m.select_features(G, G1d, cm)
+        labels = [b["tgt_out"][i, :n].tolist() for i, n in enumerate(b["ctc_lengths"].tolist())]
+        got = m.joint_nll(H, cm, U1d, fw, labels, TOK.bos_id, TOK.eos_id)
+        # reference: per-sample CTC NLL and summed teacher-forced cross-entropy from the training forward
+        out = m(b["images"], b["widths"], b["tgt_in"], b["tgt_in"] == TOK.pad_id)
+        ctc = torch.nn.functional.ctc_loss(out["ctc_logits"].float().log_softmax(-1).transpose(0, 1), b["ctc_targets"],
+                                           out["feat_w"], b["ctc_lengths"], blank=TOK.blank_id, reduction="none")
+        ce = torch.nn.functional.cross_entropy(out["dec_logits"].transpose(1, 2), b["tgt_out"],
+                                               ignore_index=TOK.pad_id, reduction="none").sum(1)
+        assert torch.allclose(got, 0.5 * ctc + 0.5 * ce, atol=1e-4)
+        r = m.recognize(b["images"], b["widths"], TOK.bos_id, TOK.eos_id, max_len=8, decoders=("joint",))
+    for c, t, j in zip(r["ctc"], r["tr"], r["joint"]):
+        cc = [i for n, i in enumerate(c) if i != 0 and (n == 0 or i != c[n - 1])]
+        assert j in (cc, t[:t.index(TOK.eos_id)] if TOK.eos_id in t else t)
