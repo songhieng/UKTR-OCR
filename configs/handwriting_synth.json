@@ -222,7 +222,7 @@
     ]
   },
   "layout": {
-    "canvas_width": 144,
+    "canvas_width": 16,
     "canvas_height": 96,
     "em_fraction": [
       0.5,
@@ -253,7 +253,7 @@
       "textured": 0.03
     },
     "base_brightness": [
-      0.55,
+      0.85,
       1.0
     ],
     "texture_strength": [
@@ -288,8 +288,8 @@
     ],
     "p_brightness": 0.5,
     "brightness": [
-      0.7,
-      1.2
+      0.9,
+      1.15
     ],
     "p_contrast": 0.4,
     "contrast": [
