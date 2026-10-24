@@ -6,6 +6,7 @@
 #      NUM_TEXTS=100000 WORKERS=32 bash scripts/vast_stage2.sh          # synthetic texts / CPU workers
 #      SYNTH=0 CONFIG=configs/stage2_real_only.yaml bash scripts/vast_stage2.sh   # real-only ablation, no generation
 #      NUM_TEXTS=5000 CONFIG=configs/stage2_kite.yaml bash scripts/vast_stage2.sh # round 2: + KiteAether, small synthetic share
+#      SET="train.batch_size=16 train.grad_accum=2" bash scripts/vast_stage2.sh    # 16 GB GPU (same effective batch)
 # Needs ~100 GB free disk (Stage-1 replay data ~80 GB, synthetic handwriting ~2 GB). Synthetic
 # generation is CPU-bound (~0.5 s per image per core): pick a box with many vCPUs.
 set -euo pipefail
@@ -60,11 +61,11 @@ fi
 "$PY" scripts/build_vocab.py    --config configs/stage2_data.yaml --existing data/tokenizer/kcc_vocab.json
 
 "$PY" -m pytest -q tests
-"$PY" scripts/preflight.py --config "$CONFIG" || {
+"$PY" scripts/preflight.py --config "$CONFIG" --set ${SET:-} || {
   echo "preflight failed: see results/*/preflight.json (start training by hand if only the overfit check failed)"; exit 1; }
 
 # training runs inside tmux so it survives SSH disconnects; TensorBoard on port 6006
 NAME=$(basename "$CONFIG" .yaml)
-tmux new-session -d -s "$NAME" "OMP_NUM_THREADS=$OMP_NUM_THREADS MKL_NUM_THREADS=$MKL_NUM_THREADS $PY scripts/train.py --config $CONFIG --set data.num_workers=$(( W > 6 ? W - 4 : 2 )) 2>&1 | tee -a results/train_$NAME.log"
+tmux new-session -d -s "$NAME" "OMP_NUM_THREADS=$OMP_NUM_THREADS MKL_NUM_THREADS=$MKL_NUM_THREADS $PY scripts/train.py --config $CONFIG --set data.num_workers=$(( W > 6 ? W - 4 : 2 )) ${SET:-} 2>&1 | tee -a results/train_$NAME.log"
 tmux has-session -t tb 2>/dev/null || tmux new-session -d -s tb "$PY -m tensorboard.main --logdir results --host 0.0.0.0 --port 6006"
 echo "training started: tmux attach -t $NAME   |   TensorBoard: http://<host>:6006"
