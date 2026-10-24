@@ -6,6 +6,7 @@
 #      NUM_TEXTS=100000 WORKERS=32 bash scripts/vast_stage2.sh          # synthetic texts / CPU workers
 #      SYNTH=0 CONFIG=configs/stage2_real_only.yaml bash scripts/vast_stage2.sh   # real-only ablation, no generation
 #      NUM_TEXTS=5000 CONFIG=configs/stage2_kite.yaml bash scripts/vast_stage2.sh # round 2: + KiteAether, small synthetic share
+#      NUM_TEXTS=100000 CONFIG=configs/stage2_synth_only.yaml bash scripts/vast_stage2.sh # synthetic only (rm data/raw/khmer_synth_hw first)
 #      SET="train.batch_size=16 train.grad_accum=2" bash scripts/vast_stage2.sh    # 16 GB GPU (same effective batch)
 # Needs ~100 GB free disk (Stage-1 replay data ~80 GB, synthetic handwriting ~2 GB). Synthetic
 # generation is CPU-bound (~0.5 s per image per core): pick a box with many vCPUs.

@@ -1,0 +1,15 @@
+# Stage 2 ablation: synthetic handwriting only - real lines are never trained on, only evaluated.
+# Generate a full synthetic set first (NUM_TEXTS=100000, with the new letter-shape features).
+# Checkpoints are still selected on real_hw val; real_hw test stays untouched for the final number.
+# Compare with stage2_real_only.yaml (real_hw test TR 13.8%) and Stage 1 (32.9%).
+base: stage2.yaml
+experiment: stage2_synth_only
+paths:
+  out_dir: checkpoints/stage2_synth_only
+  results_dir: results/stage2_synth_only
+data:
+  adapt_sources: [khmer_synth_hw]
+  val_sources: [real_hw, kiteaether, khmer_synth_hw, khmer_printed, hiertext]
+train:
+  max_steps: 24000
+  eval_every: 1000
