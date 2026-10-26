@@ -1,0 +1,18 @@
+# Thai-transfer experiment (does real Thai handwriting help Khmer handwriting?), run A = baseline:
+# Khmer real handwriting only. All thai_* runs start from the Thai-extended Stage-1 checkpoint
+# (scripts/extend_vocab.py), so they share one vocabulary and differ only in training data.
+# Replay is printed Khmer only: KhmerSynthetic + HierText (~80 GB) don't fit a 64 GB box. Run: scripts/vast_thai.sh
+base: stage2.yaml
+experiment: thai_a_khmer
+init_checkpoint: checkpoints/uktr_stage1_thai.pt
+paths:
+  out_dir: checkpoints/thai_a
+  results_dir: results/thai_a
+data:
+  adapt_sources: [real_hw, kiteaether]
+  replay_sources: [khmer_printed]
+  repeat: {real_hw: 2, kiteaether: 2}
+  val_sources: [real_hw, kiteaether, khmer_printed, thai_hw]   # same val set in every thai_* run
+train:
+  max_steps: 12000
+  eval_every: 500

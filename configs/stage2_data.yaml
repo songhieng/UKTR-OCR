@@ -43,3 +43,16 @@ sources:
     val_fraction: 0.08
     test_fraction: 0.08
     license: "None stated on the HF card - ask the author before redistributing a model trained on it."
+
+  # Thai REAL handwriting (sister script), used only as extra training data for the Khmer model
+  # (configs/thai_*.yaml). BEST 2019 + Wang lines; the Wang part repeats 4,920 sentences across 2,026
+  # writers, so val/test are split by text hash (sentence-disjoint). Scans up to ~9.8k px wide: saved at 64 px.
+  thai_hw:
+    hf_repo: iapp/thai_handwriting_dataset
+    revision: 00ef1056799dfcf179927831acb4fb6ffd73a788
+    files: ["train-*.parquet"]
+    modality: handwritten
+    max_save_height: 64
+    val_fraction: 0.03
+    test_fraction: 0.03
+    license: "HF card metadata: apache-2.0. Sources: NECTEC BEST 2019 + Wang Thai Handwritten Free Dataset; check their terms before redistribution."

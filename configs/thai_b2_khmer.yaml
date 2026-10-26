@@ -1,0 +1,7 @@
+# Thai-transfer run B, phase 2: run A's recipe, started from the Thai-trained phase-1 model.
+base: thai_a_khmer.yaml
+experiment: thai_b2_khmer
+init_checkpoint: checkpoints/thai_b1/uktr_stage2_last.pt
+paths:
+  out_dir: checkpoints/thai_b2
+  results_dir: results/thai_b2

@@ -34,6 +34,27 @@ def export_inference(src, dst) -> None:
     save_checkpoint(dst, **{k: v for k, v in ck.items() if k not in RESUME_KEYS and k != "format_version"})
 
 
+def extend_vocab(ck: dict, chars) -> dict:
+    """Append `chars` missing from a checkpoint's vocabulary and grow the vocab-sized layers.
+
+    Old token ids and their logits are unchanged. New output rows are drawn with the std of the existing
+    rows and get the mean existing bias, so no new token starts out favoured. Returns a new checkpoint dict.
+    """
+    tok = KCCTokenizer.from_dict(ck["tokenizer"])
+    new = [c for c in dict.fromkeys(chars) if c not in tok.stoi]
+    if not new:
+        return ck
+    tok, st = KCCTokenizer(tok.vocab + new, tok.normalization), dict(ck["model_state"])
+    g = torch.Generator().manual_seed(0)
+    for k in ("ctc_head.weight", "tok_emb.weight", "dec_head.weight"):
+        w = st[k]
+        st[k] = torch.cat([w, torch.randn(len(new), w.shape[1], generator=g).to(w.dtype) * w.float().std()])
+    for k in ("ctc_head.bias", "dec_head.bias"):
+        st[k] = torch.cat([st[k], st[k].mean().expand(len(new))])
+    return {**ck, "tokenizer": tok.to_dict(), "model_state": st,
+            "model_config": {**ck["model_config"], "vocab_size": len(tok)}}
+
+
 def load_stage1(path, model: torch.nn.Module | None = None, device="cpu",
                 allowed_missing_prefixes=("feature_selector.",)):
     """Load a Stage-1 checkpoint.

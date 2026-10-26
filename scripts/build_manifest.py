@@ -30,9 +30,9 @@ SPLIT_ORDER = {"train": 0, "val": 1, "test": 2}
 
 
 def supported_char(c: str) -> bool:
-    """Khmer, Latin (incl. Latin-1/Extended-A/B), general punctuation, currency, common symbols."""
+    """Khmer, Thai, Latin (incl. Latin-1/Extended-A/B), general punctuation, currency, common symbols."""
     o = ord(c)
-    return (o < 0x250 or 0x1780 <= o < 0x1800 or 0x19E0 <= o < 0x1A00 or 0x2000 <= o < 0x2070
+    return (o < 0x250 or 0x0E00 <= o < 0x0E80 or 0x1780 <= o < 0x1800 or 0x19E0 <= o < 0x1A00 or 0x2000 <= o < 0x2070
             or 0x20A0 <= o < 0x20D0 or 0x2100 <= o < 0x2190)
 
 

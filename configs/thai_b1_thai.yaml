@@ -1,0 +1,13 @@
+# Thai-transfer run B, phase 1: Thai real handwriting only (+ printed Khmer replay). Phase 2
+# (thai_b2_khmer.yaml) continues from this run's LAST checkpoint, so nothing here is selected on Khmer val.
+base: thai_a_khmer.yaml
+experiment: thai_b1_thai
+paths:
+  out_dir: checkpoints/thai_b1
+  results_dir: results/thai_b1
+data:
+  adapt_sources: [thai_hw]
+train:
+  max_steps: 4000
+  eval_every: 1000
+  best_metric: thai_hw/tr_cer

@@ -88,3 +88,22 @@ def test_routing_stats():
     r = routing_stats(route, ["printed", "scene", "handwritten"])
     assert r["route_acc"] == 2 / 3
     assert abs(r["route_p/handwritten/src2"] - 0.4) < 1e-9
+
+
+def test_extend_vocab_keeps_old_logits():
+    from src.models.checkpoint import extend_vocab
+    from src.tokenizer.kcc import KCCTokenizer
+    torch.manual_seed(0)
+    m = UKTRBase(SMALL).eval()
+    ck = extend_vocab({"model_config": m.cfg, "model_state": m.state_dict(), "tokenizer": TOK.to_dict()},
+                      ["ก", "ข", "ก", "a"])                              # duplicate and existing chars are skipped
+    tok = KCCTokenizer.from_dict(ck["tokenizer"])
+    assert tok.vocab == TOK.vocab + ["ก", "ข"] and ck["model_config"]["vocab_size"] == len(tok)
+    m2 = UKTRBase(ck["model_config"]).eval()
+    m2.load_state_dict(ck["model_state"])
+    b, V = batch(), len(TOK)
+    with torch.no_grad():
+        o1, o2 = m(b["images"], b["widths"], b["tgt_in"]), m2(b["images"], b["widths"], b["tgt_in"])
+    assert torch.allclose(o1["ctc_logits"], o2["ctc_logits"][..., :V], atol=1e-5)
+    assert torch.allclose(o1["dec_logits"], o2["dec_logits"][..., :V], atol=1e-5)
+    assert tok.decode(tok.encode("กข a")) == "กข a"

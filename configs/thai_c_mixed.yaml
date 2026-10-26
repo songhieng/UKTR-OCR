@@ -1,0 +1,9 @@
+# Thai-transfer run C: Khmer and Thai real handwriting mixed in every epoch (~half the handwriting lines
+# are Thai, so per step it sees about half as much Khmer as run A: compare at equal steps and equal Khmer lines).
+base: thai_a_khmer.yaml
+experiment: thai_c_mixed
+paths:
+  out_dir: checkpoints/thai_c
+  results_dir: results/thai_c
+data:
+  adapt_sources: [real_hw, kiteaether, thai_hw]

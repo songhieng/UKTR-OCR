@@ -58,7 +58,7 @@ def check_image(data: bytes):
 
 # ---------------------------------------------------------------- parquet sources
 def parquet_task(task, data_root: Path, source: str, license_: str, text_column=None, image_column="image",
-                 handwritten=False):
+                 handwritten=False, max_save_height=None):
     pq_path, rg, split, stem = task
     pf = pq.ParquetFile(pq_path)
     tbl = pf.read_row_group(rg).to_pylist()
@@ -75,8 +75,13 @@ def parquet_task(task, data_root: Path, source: str, license_: str, text_column=
             im, ext = check_image(data)
         except Exception:
             stats["corrupt_image"] += 1; continue
+        if max_save_height and im.height > max_save_height:   # big scans: store downscaled (training uses 32 px)
+            im = im.convert("RGB").resize((max(2, round(im.width * max_save_height / im.height)), max_save_height),
+                                    Image.LANCZOS)
+            buf = io.BytesIO(); im.save(buf, "JPEG", quality=95); data, ext = buf.getvalue(), "jpg"
+            stats["downscaled"] += 1
         name = f"{stem}_{rg:04d}_{i:04d}.{ext}"
-        (out_dir / name).write_bytes(data)          # original bytes, no re-encoding
+        (out_dir / name).write_bytes(data)          # original bytes unless downscaled above
         rows.append([f"images/{source}/{split}/{name}", text, source, split, im.width, im.height, license_,
                      hashlib.md5(data).hexdigest(), dhash(im), handwritten, ""])
         stats["ok"] += 1
@@ -244,7 +249,7 @@ def main():
             else:
                 fn = partial(parquet_task, data_root=data_root, source=source, license_=src["license"],
                              text_column=src.get("text_column"), image_column=src.get("image_column", "image"),
-                             handwritten=hw)
+                             handwritten=hw, max_save_height=src.get("max_save_height"))
                 rows, stats = run(pool, fn, parquet_tasks(source, src, raw), source)
             df = pd.DataFrame(rows, columns=COLUMNS).sort_values("image_path", kind="stable")
             df.to_csv(out_csv, index=False, encoding="utf-8")
