@@ -11,3 +11,8 @@ train:
   max_steps: 4000
   eval_every: 1000
   best_metric: thai_hw/tr_cer
+  # Stage-1 LR range, not Stage 2's 1e-6..1e-5: at the low range run C still read Thai at ~76% joint CER
+  # after ~4.5 Thai epochs, so B1 would test "a little low-LR noise" instead of "learned to read real handwriting"
+  lr_min: 1.0e-5
+  lr_max: 1.0e-4
+  mafs_lr_scale: 1
