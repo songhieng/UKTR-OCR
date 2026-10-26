@@ -151,7 +151,8 @@ def build_datasets(cfg, tok):
     d, p = cfg["data"], cfg["paths"]
     common = dict(data_root=resolve(p["data_root"]), tokenizer=tok, img_height=d["img_height"],
                   min_width=d["min_width"], max_width=d["max_width"], in_channels=cfg["model"]["in_channels"],
-                  max_label_len=cfg["model"]["max_dec_len"] - 2, modalities=modalities_of(cfg))
+                  max_label_len=cfg["model"]["max_dec_len"] - 2, modalities=modalities_of(cfg),
+                  stretch=d.get("stretch"))
     stage2 = cfg.get("stage", 1) == 2
     train_sources = d["adapt_sources"] + d.get("replay_sources", []) if stage2 else d.get("train_sources")
     tr_df = load_manifest(resolve(p["manifest"]), ["train"], train_sources,
@@ -209,7 +210,7 @@ def train(cfg: dict, resume: str | None = None) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True); res_dir.mkdir(parents=True, exist_ok=True)
 
     train_ds, val_ds, tr_df, va_df = build_datasets(cfg, tok)
-    print(f"train={len(train_ds)} (dropped {train_ds.n_dropped} infeasible/too long)  "
+    print(f"train={len(train_ds)} (dropped {train_ds.n_dropped} infeasible/too long, stretched {train_ds.n_stretched})  "
           f"val={len(val_ds)} (dropped {val_ds.n_dropped})  vocab={len(tok)}")
     collate = make_collate(tok)
     nw = cfg["data"].get("num_workers", 4)

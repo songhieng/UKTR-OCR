@@ -13,6 +13,7 @@ data:
   replay_sources: [khmer_printed]
   repeat: {real_hw: 2, kiteaether: 2}
   val_sources: [real_hw, kiteaether, khmer_printed, thai_hw]   # same val set in every thai_* run
+  stretch: {thai_hw: 2.0}   # 63% of Thai lines have fewer CTC frames than characters at 32 px; widen up to 2x
 train:
   max_steps: 12000
   eval_every: 500

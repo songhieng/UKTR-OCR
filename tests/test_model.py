@@ -205,3 +205,15 @@ def test_joint_rescoring_scores_and_picks_one_of_the_reads():
     for c, t, j in zip(r["ctc"], r["tr"], r["joint"]):
         cc = [i for n, i in enumerate(c) if i != 0 and (n == 0 or i != c[n - 1])]
         assert j in (cc, t[:t.index(TOK.eos_id)] if TOK.eos_id in t else t)
+
+
+def test_stretch_widens_dense_lines_of_listed_sources_only():
+    import pandas as pd
+    from src.datasets.ocr_dataset import LineDataset
+    text = "abcdefgh"                                        # 8 tokens -> 8 CTC frames -> needs >= 32 px
+    df = pd.DataFrame({"image_path": ["a", "b", "c"], "transcription": [text] * 3, "width": [24, 24, 8],
+                       "height": [32] * 3, "source_dataset": ["thai", "khmer", "thai"]})
+    assert LineDataset(df, ".", TOK, min_width=1).n_dropped == 3
+    ds = LineDataset(df, ".", TOK, min_width=1, stretch={"thai": 2.0})
+    assert ds.n_stretched == 1 and ds.n_dropped == 2         # khmer untouched; 8 px would need > 2x
+    assert ds.widths.tolist() == [40]                        # ceil(8 * 1.2) frames * 4 px

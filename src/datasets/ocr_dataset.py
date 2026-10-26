@@ -75,12 +75,18 @@ def _pad_margins(im):
 class LineDataset(Dataset):
     def __init__(self, df: pd.DataFrame, data_root, tokenizer: KCCTokenizer, img_height=32,
                  min_width=16, max_width=1600, in_channels=1, augment=False, max_label_len=254,
-                 feat_stride=4, filter_infeasible=True, modalities=None, neighbor_p=0.0):
+                 feat_stride=4, filter_infeasible=True, modalities=None, neighbor_p=0.0, stretch=None):
         self.root = Path(data_root)
         self.tok, self.h, self.c, self.augment, self.neighbor_p = tokenizer, img_height, in_channels, augment, neighbor_p
         self.max_width = max_width
         tw = target_width(df.width.values, df.height.values, img_height, min_width, max_width)
         ids = [np.asarray(tokenizer.encode(t, normalized=True), dtype=np.int32) for t in df.transcription]
+        # stretch={source: max factor}: lines too dense for CTC (Thai: one token per mark) are widened just
+        # enough, +20% slack for augmentation, instead of dropped; lines needing more than the cap still drop
+        cap = np.array([(stretch or {}).get(s, 1.0) for s in df.source_dataset], dtype=float)
+        want = np.minimum(np.ceil(np.array([ctc_min_frames(a) for a in ids]) * 1.2) * feat_stride, max_width)
+        s = (cap > 1) & (want > tw) & (want <= tw * cap)
+        tw, self.n_stretched = np.where(s, want, tw).astype(np.int64), int(s.sum())
         frames = -(-tw // feat_stride)
         # training drops labels CTC cannot align / the decoder cannot hold; evaluation keeps them
         keep = np.array([0 < len(a) and (not filter_infeasible or (len(a) <= max_label_len
