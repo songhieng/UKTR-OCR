@@ -184,6 +184,7 @@ class UKTRBase(nn.Module):
             sc = self.joint_nll(H, col_mask, U1d, feat_w, c_ids, bos_id, eos_id).tolist()
             st = self.joint_nll(H, col_mask, U1d, feat_w, t_ids, bos_id, eos_id).tolist()
             out["joint"] = [c if a <= b else t for c, t, a, b in zip(c_ids, t_ids, sc, st)]
+            out["joint_nll"] = [min(a, b) for a, b in zip(sc, st)]
         return out
 
     @torch.no_grad()

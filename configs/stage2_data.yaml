@@ -56,3 +56,59 @@ sources:
     val_fraction: 0.03
     test_fraction: 0.03
     license: "HF card metadata: apache-2.0. Sources: NECTEC BEST 2019 + Wang Thai Handwritten Free Dataset; check their terms before redistribution."
+
+  # PSEUDO-labelled handwriting (self-training): scripts/pseudo_label.py reads unlabeled line crops in
+  # data/raw/unlabeled/<writer>/ with the current model and keeps confident reads. Train only: the labels
+  # are model guesses, so they never select checkpoints or score a model.
+  pseudo_hw:
+    type: labels
+    labels: data/raw/pseudo_hw/labels.csv
+    images_root: data/raw/unlabeled
+    image_column: image_path
+    text_column: text
+    group_column: writer_id
+    modality: handwritten
+    val_fraction: 0.0
+    test_fraction: 0.0
+    license: "Own unlabeled images (fill in where they came from and the consent terms)."
+
+  # Same, for the short-phrase crops of those lines (scripts/split_phrases.py -> data/raw/unlabeled_phrases),
+  # which match the 1-4 word real_hw / kiteaether crops:
+  #   pseudo_label.py --images data/raw/unlabeled_phrases --out data/raw/pseudo_hw/phrases.csv
+  pseudo_hw_phrases:
+    type: labels
+    labels: data/raw/pseudo_hw/phrases.csv
+    images_root: data/raw/unlabeled_phrases
+    image_column: image_path
+    text_column: text
+    group_column: writer_id
+    modality: handwritten
+    val_fraction: 0.0
+    test_fraction: 0.0
+    license: "Own unlabeled images (fill in where they came from and the consent terms)."
+
+  # Hand-transcribed essay lines (scripts/make_test_set.py -> label.html -> labels.csv). Test only: these
+  # pages and their likely same-writer neighbours are kept out of every pseudo-labelling round. Lines
+  # without confirmed text are skipped, so the file can be filled in gradually.
+  essay_test:
+    type: labels
+    labels: data/raw/essay_test/labels.csv
+    images_root: data/raw/essay_test/images
+    image_column: image_path
+    text_column: text
+    group_column: writer_id
+    split_column: split
+    modality: handwritten
+    license: "Own unlabeled images, transcribed by hand (fill in where they came from and the consent terms)."
+
+  # 31 more hand-transcribed lines from 9 other pages (make_test_set.py EXTRA holds those pages out too).
+  essay_test_extra:
+    type: labels
+    labels: data/raw/essay_test_extra/labels.csv
+    images_root: data/raw/essay_test_extra/images
+    image_column: image_path
+    text_column: text
+    group_column: writer_id
+    split_column: split
+    modality: handwritten
+    license: "Own unlabeled images, transcribed by hand (fill in where they came from and the consent terms)."

@@ -1,0 +1,15 @@
+# Self-training round: continue from the round-2 model with pseudo-labelled lines added
+# (scripts/pseudo_label.py). Pseudo lines stay at or below the share of real lines; repeat the
+# label -> train cycle with the new best checkpoint while unseen-writer CER keeps dropping.
+base: stage2_kite.yaml
+experiment: stage2_pseudo
+init_checkpoint: checkpoints/stage2_kite/uktr_stage2_best_infer.pt
+paths:
+  out_dir: checkpoints/stage2_pseudo
+  results_dir: results/stage2_pseudo
+data:
+  adapt_sources: [real_hw, kiteaether, khmer_synth_hw, pseudo_hw]
+  repeat: {real_hw: 2, kiteaether: 2}
+train:
+  max_steps: 12000
+  eval_every: 1000
