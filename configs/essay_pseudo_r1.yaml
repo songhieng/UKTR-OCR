@@ -1,4 +1,5 @@
-# Essay self-training, round 1: thai_b2 (best Khmer handwriting model, real_hw test 10.8%) + its own
+# Essay self-training, round 1: thai_b2 (best of the Thai-transfer runs: real_hw / kiteaether VAL CER
+# 10.79 / 10.78%; one seed; not compared on test with stage2_kite, 11.4% real_hw test) + its own
 # confident reads of the essay phrase crops (scripts/pseudo_label.py on data/raw/unlabeled_phrases).
 # Same recipe as thai_b2 (thai_a_khmer.yaml: printed-only replay, fits a 64 GB box). Pseudo phrases are
 # capped at the real line count (x2 repeat) so model mistakes can't outweigh the truth. Run: scripts/vast_essay.sh
