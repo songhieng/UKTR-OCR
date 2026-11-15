@@ -57,7 +57,7 @@ def demo():
 
 
 HTML = r"""<!doctype html>
-<html lang="km"><head><meta charset="utf-8"><title>Essay test set labelling</title>
+<html lang="km"><head><meta charset="utf-8"><title>__TITLE__ labelling</title>
 <style>
 :root{--bg:#f6f6f4;--card:#fff;--ink:#1d1d1b;--mute:#6b6b66;--ok:#1f7a44;--line:#dcdcd6}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px system-ui,sans-serif}
@@ -72,13 +72,13 @@ main{max-width:1200px;margin:0 auto;padding:12px 16px} h2{font-size:14px;color:v
 .ed input{flex:1;font:22px "Khmer UI","Noto Sans Khmer","Khmer OS",sans-serif;padding:4px 8px;border:1px solid var(--line);border-radius:4px}
 .hint{font-size:12px;color:var(--mute);min-width:90px} kbd{font-size:12px;border:1px solid var(--line);border-radius:3px;padding:0 4px}
 </style></head><body>
-<header><b>Essay test set</b><span id="count"></span><div class="bar"><i id="prog"></i></div>
+<header><b>__TITLE__</b><span id="count"></span><div class="bar"><i id="prog"></i></div>
 <span class="hint"><kbd>Enter</kbd> confirm &amp; next · <kbd>Ctrl</kbd>+<kbd>Enter</kbd> skip (unreadable / not a text line)</span>
 <button id="exp">Export labels.csv</button></header>
 <main id="m"></main>
 <script>
 const ROWS = __ROWS__;
-const KEY = 'essay_test_labels_v1';
+const KEY = '__KEY__';
 let st = {}; try { st = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) {}
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
 const m = document.getElementById('m');
@@ -108,7 +108,7 @@ document.getElementById('exp').onclick = () => {
   const q = v => '"' + String(v).replace(/"/g, '""') + '"';
   const lines = ['image_path,text,writer_id,split,model_guess'].concat(ROWS.map(r => {
     const s = st[r.image_path] || {};
-    return [r.image_path, s.status === 'ok' ? s.text : '', r.writer_id, 'test', r.guess].map(q).join(',');
+    return [r.image_path, s.status === 'ok' ? s.text : '', r.writer_id, '__SPLIT__', r.guess].map(q).join(',');
   }));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\n')], {type: 'text/csv'}));
@@ -117,6 +117,12 @@ document.getElementById('exp').onclick = () => {
 count();
 </script></body></html>
 """
+
+
+def page(rows, title, key, split):
+    """label.html for rows; key = browser storage slot (one per set, so sets never mix), split = exported split."""
+    return (HTML.replace('__TITLE__', title).replace('__KEY__', key).replace('__SPLIT__', split)
+            .replace('__ROWS__', json.dumps(rows, ensure_ascii=False)))
 
 
 if __name__ == '__main__':
@@ -159,6 +165,6 @@ if __name__ == '__main__':
         with open(labels, 'w', newline='', encoding='utf-8') as f:
             w = csv.writer(f); w.writerow(['image_path', 'text', 'writer_id', 'split', 'model_guess'])
             w.writerows([[r['image_path'], '', r['writer_id'], 'test', r['guess']] for r in rows])
-    (out / 'label.html').write_text(HTML.replace('__ROWS__', json.dumps(rows, ensure_ascii=False)), encoding='utf-8')
+    (out / 'label.html').write_text(page(rows, 'Essay test set', 'essay_test_labels_v1', 'test'), encoding='utf-8')
     print(f'{len(rows)} test lines from {len(TEST)} pages -> {out}/label.html; '
           f'{len(list(buf.glob("*")))} buffer pages -> {buf}')

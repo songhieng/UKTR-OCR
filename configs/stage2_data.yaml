@@ -101,6 +101,19 @@ sources:
     modality: handwritten
     license: "Own unlabeled images, transcribed by hand (fill in where they came from and the consent terms)."
 
+  # Hand-corrected HARD essay phrases (scripts/make_hard_set.py -> label.html -> labels.csv): ones the model
+  # rejected for pseudo-labelling. Real labels, train only; from pool pages, never test/buffer pages.
+  essay_hard:
+    type: labels
+    labels: data/raw/essay_hard/labels.csv
+    images_root: data/raw/essay_hard/images
+    image_column: image_path
+    text_column: text
+    group_column: writer_id
+    split_column: split
+    modality: handwritten
+    license: "Own unlabeled images, corrected by hand (fill in where they came from and the consent terms)."
+
   # 31 more hand-transcribed lines from 9 other pages (make_test_set.py EXTRA holds those pages out too).
   essay_test_extra:
     type: labels
