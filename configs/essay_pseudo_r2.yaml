@@ -1,0 +1,9 @@
+# Essay self-training, round 2: essay_r1 re-labels all essay phrases (replacing round 1's labels) and
+# training continues from it with the same recipe. Run:
+#   CKPT=checkpoints/essay_r1/uktr_stage2_best_infer.pt CONFIG=configs/essay_pseudo_r2.yaml MAX_NLL=... bash scripts/vast_essay.sh
+base: essay_pseudo_r1.yaml
+experiment: essay_pseudo_r2
+init_checkpoint: checkpoints/essay_r1/uktr_stage2_best_infer.pt
+paths:
+  out_dir: checkpoints/essay_r2
+  results_dir: results/essay_r2
