@@ -9,6 +9,7 @@ label.html: confirm/correct each line, then export labels.csv (only confirmed li
 """
 import argparse
 import csv
+import hashlib
 import json
 import shutil
 import sys
@@ -120,9 +121,11 @@ count();
 
 
 def page(rows, title, key, split):
-    """label.html for rows; key = browser storage slot (one per set, so sets never mix), split = exported split."""
-    return (HTML.replace('__TITLE__', title).replace('__KEY__', key).replace('__SPLIT__', split)
-            .replace('__ROWS__', json.dumps(rows, ensure_ascii=False)))
+    """label.html for rows; split = exported split. Browser storage is per key AND row list: every file:// page
+    shares one localStorage, so a page with the same line names (the demo) must not show its answers here."""
+    data = json.dumps(rows, ensure_ascii=False)
+    key = f"{key}_{hashlib.md5(data.encode('utf-8')).hexdigest()[:8]}"
+    return HTML.replace('__TITLE__', title).replace('__KEY__', key).replace('__SPLIT__', split).replace('__ROWS__', data)
 
 
 if __name__ == '__main__':
